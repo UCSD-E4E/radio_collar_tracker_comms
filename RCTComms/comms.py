@@ -20,6 +20,7 @@
 #
 # DATE      WHO Description
 # -----------------------------------------------------------------------------
+# 03/26/22  HG  Changed GCS to server and drone to client
 # 07/29/20  NH  Added isOpen to mavComms
 # 07/23/20  NH  Initial docstrings
 # 05/23/20  NH  Moved heartbeat watchdog timeout to parameter
@@ -114,7 +115,7 @@ class OPTIONS_SCOPE:
     '''
     Options Packet Values
     '''
-    
+
     ## Base Options
     BASE_OPTIONS = 0x00
     _baseOptionKeywords = ['SDR_centerFreq', 'SDR_samplingFreq', 'SDR_gain']
@@ -455,9 +456,9 @@ class rctUpgradeStatusPacket(rctBinaryPacket):
         _, state, strlen = struct.unpack('<BBH', payload[0x0000: 0x0004])
         msg = payload[0x0004:0x0004 + strlen].decode()
         return rctUpgradeStatusPacket(state, msg)
-    
+
 class rctUpgradePacket(rctBinaryPacket):
-    
+
     def __init__(self, numPacket, numTotal, fileBytes):
         self._pclass = 0x03
         self._pid = 0x02
@@ -465,11 +466,11 @@ class rctUpgradePacket(rctBinaryPacket):
         self.numTotal = numTotal
         self.fileBytes = fileBytes
         self._payload = struct.pack('<BHHH', 0x01, numPacket, numTotal, len(fileBytes)) + fileBytes
-    
+
     @classmethod
     def matches(cls, packetClass: int, packetID: int):
         return packetClass == 0x03 and packetID == 0x02
-    
+
     @classmethod
     def from_bytes(cls, packet: bytes):
         header = packet[0:6]
@@ -776,6 +777,7 @@ class EVENTS(enum.Enum):
     UPGRADE_DATA = 0x0302
     DATA_PING = 0x0401
     DATA_VEHICLE = 0x0402
+    DATA_CONE = 0x0403 # TODO: What value should DATA_CONE actually have? I just guessed.
     COMMAND_ACK = 0x0501
     COMMAND_GETF = 0x0502
     COMMAND_SETF = 0x0503
@@ -871,7 +873,7 @@ class gcsComms:
     '''
     __BUFFER_LEN = 1024
 
-    def __init__(self, port: RCTComms.transport.RCTAbstractTransport, GC_HeartbeatWatchdogTime=30):
+    def __init__(self, port: RCTComms.transport.RCTAbstractTransport, gcs: GCS.CollapseFrame, GC_HeartbeatWatchdogTime=30):
         '''
         Initializes the UDP interface on the specified port.  Also specifies a
         filename to use as a logfile, which defaults to no log.
@@ -880,9 +882,12 @@ class gcsComms:
         :type port: rctTransport.RCTAbstractTransport
         :param originString: Origin string
         :type originString: str
+        :param gcs: GCS instance associated with this comms
+        :type gcs: GCS.CollapseFrame
         '''
         self.__log = logging.getLogger('rctGCS.gcsComms')
         self.sock = port
+        self.__gcs = gcs
 
         self.__receiverThread: Optional[threading.Thread] = None
         self.__log.info('RTC gcsComms created')
@@ -915,6 +920,9 @@ class gcsComms:
         for _ in range(timeout):
             try:
                 data, addr = self.sock.receive(1024, 1)
+                if data is None:
+                    self.__gcs.disconnected()
+                    break
                 packets = self.__parser.parseBytes(data)
                 for packet in packets:
                     if isinstance(packet, rctHeartBeatPacket):
@@ -938,7 +946,11 @@ class gcsComms:
         while self.HS_run:
             try:
                 data, addr = self.sock.receive(self.__BUFFER_LEN, 1)
+                if data is None:
+                    self.__gcs.disconnected()
+                    break
                 self.__log.info("Received: %s" % data.hex())
+
                 packets = self.__parser.parseBytes(data)
                 for packet in packets:
                     packetCode = packet.getClassIDCode()
@@ -1069,7 +1081,7 @@ class mavComms:
         }
 
         self.__parser = rctBinaryPacketFactory()
-        
+
     def isOpen(self):
         return self.__port.isOpen()
 
@@ -1138,3 +1150,39 @@ class mavComms:
             self.__packetMap[event.value].append(callback)
         else:
             self.__packetMap[event.value] = [callback]
+
+class rctConePacket(rctBinaryPacket):
+    def __init__(self, lat: float, lon: float, alt: float, power: float, angle: float, timestamp: dt.datetime = None):
+        self.lat = lat
+        self.lon = lon
+        self.alt = alt
+        self.power = power
+        self.angle = angle
+        if timestamp is None:
+            timestamp = dt.datetime.now()
+        self.timestamp = timestamp
+
+        self._pclass = 0x04
+        self._pid = 0x04
+        self._payload = struct.pack("<BQllHff", 0x01, int(timestamp.timestamp(
+        ) * 1e3), int(lat * 1e7), int(lon * 1e7), int(alt * 10), power, angle)
+
+
+    @classmethod
+    def matches(cls, packetClass: int, packetID: int):
+        return packetClass == 0x04 and packetID == 0x04
+
+    @classmethod
+    def from_bytes(cls, packet: bytes):
+        header = packet[0:6]
+        payload = packet[6:-2]
+        _, _, pcls, pid, _ = struct.unpack("<BBBBH", header)
+        if not cls.matches(pcls, pid):
+            raise RuntimeError("Incorrect packet type")
+        _, timeMS, lat7, lon7, alt1, power, angle = struct.unpack(
+            '<BQllHff', payload)
+        timestamp = dt.datetime.fromtimestamp(timeMS / 1e3)
+        lat = lat7 / 1e7
+        lon = lon7 / 1e7
+        alt = alt1 / 10
+        return rctConePacket(lat, lon, alt, power, angle, timestamp)

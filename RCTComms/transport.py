@@ -20,6 +20,8 @@
 #
 # DATE      WHO DESCRIPTION
 # -----------------------------------------------------------------------------
+# 03/26/22  HG  Changed GCS to server and drone to client,
+#                   added scaffolding for accepting multiple connections
 # 07/29/20  NH  Added isOpen method for all classes
 # 07/23/20  NH  Added docstring for base class
 # 05/25/20  NH  Started docstrings
@@ -34,13 +36,15 @@
 import abc
 import os
 import select
+import selectors
+import types
 import socket
 from typing import Optional, Tuple
 
 
 class RCTAbstractTransport(abc.ABC):
     '''
-    Abstract transport class - all transport types should inherit from this 
+    Abstract transport class - all transport types should inherit from this
     '''
     @abc.abstractmethod
     def __init__(self) -> None:
@@ -65,23 +69,23 @@ class RCTAbstractTransport(abc.ABC):
         '''
         Receives data from the port.  This function shall attempt to retrieve at
         most buflen bytes from the port within timeout seconds.
-        
-        If there is less than buflen bytes available when this function is 
-        called, the function shall return all available bytes immediately.  If 
-        there are  more than buflen bytes available when this function is 
-        called, the function shall return exactly buflen bytes.  If there is no 
+
+        If there is less than buflen bytes available when this function is
+        called, the function shall return all available bytes immediately.  If
+        there are  more than buflen bytes available when this function is
+        called, the function shall return exactly buflen bytes.  If there is no
         data available when this function is called, this function shall wait at
-        most timeout seconds.  If any data arrives within timeout seconds, that 
-        data shall be immediately returned.  If no data arrives, the function 
+        most timeout seconds.  If any data arrives within timeout seconds, that
+        data shall be immediately returned.  If no data arrives, the function
         shall raise an Exception.
-        
+
         This function shall return a tuple containing two elements.  The first
-        element shall be a bytes object containing the data received.  The 
+        element shall be a bytes object containing the data received.  The
         second element shall be a string denoting the originating machine.
-        
+
         Making a call to this function when the port is not open shall result in
         an Exception.
-        
+
         :param bufLen:    Maximum number of bytes to return
         :param timeout:    Maximum number of seconds to wait for data
         '''
@@ -91,9 +95,9 @@ class RCTAbstractTransport(abc.ABC):
         '''
         Sends data to the specified destination from the port.  This function
         shall transmit the provided data to the specified destination.
-        
+
         This function shall block until all data is transmitted.
-        
+
         :param data:    Data to transmit
         :param dest:    Destination to route data to
         '''
@@ -107,13 +111,13 @@ class RCTAbstractTransport(abc.ABC):
         calls to open() shall not fail if the port is available for this process
         to own.
         '''
-        
+
     @abc.abstractmethod
     def isOpen(self) -> bool:
         '''
         Returns True if the port is open, False otherwise
         '''
-        
+
 
 
 class RCTUDPClient(RCTAbstractTransport):
@@ -149,7 +153,7 @@ class RCTUDPClient(RCTAbstractTransport):
         if self.__socket is None:
             raise RuntimeError()
         self.__socket.sendto(data, (dest, self.__port))
-        
+
     def isOpen(self):
         return self.__socket is not None
 
@@ -191,7 +195,7 @@ class RCTUDPServer(RCTAbstractTransport):
         if dest is None:
             dest = '255.255.255.255'
         self.__socket.sendto(data, (dest, self.__port))
-        
+
     def isOpen(self):
         return self.__socket is not None
 
@@ -257,44 +261,77 @@ class RCTTCPClient(RCTAbstractTransport):
         if self.__socket is None:
             raise RuntimeError()
         self.__socket.send(data)
-    
+
     def isOpen(self):
         return self.__socket is not None
 
 class RCTTCPServer(RCTAbstractTransport):
-    def __init__(self, port: int):
+    def __init__(self, port: int, addr: str):
         self.__port = port
+        self.__hostAddr = addr
         self.__socket: Optional[socket.socket] = None
         self.__conn: Optional[socket.socket] = None
         self.__addr: Optional[Tuple[str, int]] = None
+        self.__sel = selectors.DefaultSelector()
 
     def open(self):
         self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.__socket.bind(('', self.__port))
+        self.__socket.bind((self.__hostAddr, self.__port))
         self.__socket.listen()
-        self.__conn, self.__addr = self.__socket.accept()
+        self.__socket.setblocking(False)
+        self.__sel.register(self.__socket, selectors.EVENT_READ, data=None)
+
+        # get connection to a drone before continuing
+        while self.__conn is None:
+            events = self.__sel.select()
+            for key, mask in events:
+                if key.data is None:
+                    self.__conn, self.__addr = key.fileobj.accept()
+                    self.__conn.setblocking(False)
+                    data = types.SimpleNamespace(addr=self.__addr, inb=b"", outb=b"")
+                    events = selectors.EVENT_READ
+                    self.__sel.register(self.__conn, events, data=data)
 
     def close(self):
-        if self.__socket is None:
+        if self.__sel is None or self.__socket is None:
             raise RuntimeError()
-        if self.__socket is None:
-            raise RuntimeError()
+
+        if self.__conn is not None:
+            self.__sel.unregister(self.__conn)
+            self.__conn.close()
         try:
             self.__socket.close()
+            self.__sel.close()
         finally:
+            self.__conn = None
             self.__socket = None
 
     def receive(self, bufLen: int, timeout: int=None):
-        if self.__conn is None:
+        if self.__conn is None or self.__addr is None:
             raise RuntimeError()
-        if self.__addr is None:
-            raise RuntimeError()
-        ready = select.select([self.__conn], [], [], timeout)
-        if ready[0]:
-            data = self.__conn.recv(bufLen)
-            return data, self.__addr[0]
-        else:
+
+        events = self.__sel.select(timeout=timeout)
+        if len(events) < 1:
             raise TimeoutError()
+
+        for key, mask in events:
+            if key.data is None: #new connection being made
+                self.__conn, self.__addr = key.fileobj.accept()
+                self.__conn.setblocking(False)
+                data = types.SimpleNamespace(addr=self.__addr, inb=b"", outb=b"")
+                events = selectors.EVENT_READ
+                self.__sel.register(self.__conn, events, data=data)
+            else: #service existing connection
+                if mask and selectors.EVENT_READ:
+                    recv_data = key.fileobj.recv(bufLen)
+                    if recv_data:
+                        return recv_data, self.__addr[0]
+                    else:
+                        self.__sel.unregister(key.fileobj)
+                        key.fileobj.close()
+                        self.__conn = None
+
+        return None, self.__addr[0]
 
     def send(self, data: bytes, dest=None):
         if self.__conn is None:
