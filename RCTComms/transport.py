@@ -229,7 +229,7 @@ class RCTPipeClient(RCTAbstractTransport):
         return self.__inFile is not None and self.__outFile is not None
 
 class RCTTCPClient(RCTAbstractTransport):
-    def __init__(self, port: int, addr: str):
+    def __init__(self, port: int=9000, addr: str='255.255.255.255'):
         self.__target = (addr, port)
         self.__socket: Optional[socket.socket] = None
 
