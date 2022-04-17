@@ -20,6 +20,7 @@
 #
 # DATE      WHO DESCRIPTION
 # -----------------------------------------------------------------------------
+# 04/17/22  HG  Set server listening addr to ''
 # 03/26/22  HG  Changed GCS to server and drone to client,
 #                   added scaffolding for accepting multiple connections
 # 07/29/20  NH  Added isOpen method for all classes
@@ -266,15 +267,18 @@ class RCTTCPClient(RCTAbstractTransport):
         return self.__socket is not None
 
 class RCTTCPServer(RCTAbstractTransport):
-    def __init__(self, port: int, addr: str):
+    def __init__(self, port: int):
         self.__port = port
-        self.__hostAddr = addr
+        self.__hostAddr = ''
         self.__socket: Optional[socket.socket] = None
         self.__conn: Optional[socket.socket] = None
         self.__addr: Optional[Tuple[str, int]] = None
         self.__sel = selectors.DefaultSelector()
 
     def open(self):
+        #Use printed addr in dsp2 until we figure out a permanent solution
+        print ('Server started at {}'.format(socket.gethostbyname(socket.gethostname())))
+
         self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.__socket.bind((self.__hostAddr, self.__port))
         self.__socket.listen()
