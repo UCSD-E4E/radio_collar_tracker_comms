@@ -518,6 +518,41 @@ class rctPingPacket(rctBinaryPacket):
         alt = alt1 / 10
         return rctPingPacket(lat, lon, alt, txp, txf, timestamp)
 
+class rctConePacket(rctBinaryPacket):
+    def __init__(self, lat: float, lon: float, alt: float, power: float, angle: float, timestamp: dt.datetime = None):
+        self.lat = lat
+        self.lon = lon
+        self.alt = alt
+        self.power = power
+        self.angle = angle
+        if timestamp is None:
+            timestamp = dt.datetime.now()
+        self.timestamp = timestamp
+
+        self._pclass = 0x04
+        self._pid = 0x04
+        self._payload = struct.pack("<BQllHff", 0x01, int(timestamp.timestamp(
+        ) * 1e3), int(lat * 1e7), int(lon * 1e7), int(alt * 10), power, angle)
+
+
+    @classmethod
+    def matches(cls, packetClass: int, packetID: int):
+        return packetClass == 0x04 and packetID == 0x04
+
+    @classmethod
+    def from_bytes(cls, packet: bytes):
+        header = packet[0:6]
+        payload = packet[6:-2]
+        _, _, pcls, pid, _ = struct.unpack("<BBBBH", header)
+        if not cls.matches(pcls, pid):
+            raise RuntimeError("Incorrect packet type")
+        _, timeMS, lat7, lon7, alt1, power, angle = struct.unpack(
+            '<BQllHff', payload)
+        timestamp = dt.datetime.fromtimestamp(timeMS / 1e3)
+        lat = lat7 / 1e7
+        lon = lon7 / 1e7
+        alt = alt1 / 10
+        return rctConePacket(lat, lon, alt, power, angle, timestamp)
 
 class rctVehiclePacket(rctBinaryPacket):
     def __init__(self, lat: float, lon: float, alt: float, hdg: int, timestamp: dt.datetime = None):
@@ -777,7 +812,7 @@ class EVENTS(enum.Enum):
     UPGRADE_DATA = 0x0302
     DATA_PING = 0x0401
     DATA_VEHICLE = 0x0402
-    DATA_CONE = 0x0403 # TODO: What value should DATA_CONE actually have? I just guessed.
+    DATA_CONE = 0x0404 # TODO: What value should DATA_CONE actually have? I just guessed.
     COMMAND_ACK = 0x0501
     COMMAND_GETF = 0x0502
     COMMAND_SETF = 0x0503
@@ -806,6 +841,7 @@ class rctBinaryPacketFactory:
         EVENTS.UPGRADE_STATUS.value: rctUpgradeStatusPacket,
         EVENTS.UPGRADE_DATA.value: rctUpgradePacket,
         EVENTS.DATA_PING.value: rctPingPacket,
+        EVENTS.DATA_CONE.value: rctConePacket,
         EVENTS.DATA_VEHICLE.value: rctVehiclePacket,
         EVENTS.COMMAND_ACK.value: rctACKCommand,
         EVENTS.COMMAND_GETF.value: rctGETFCommand,
@@ -1114,6 +1150,9 @@ class mavComms:
     def sendPing(self, ping: rctPingPacket):
         self.sendPacket(ping, None)
 
+    def sendCone(self, cone: rctConePacket):
+        self.sendPacket(cone, None)
+        
     def sendVehicle(self, vehicle: rctVehiclePacket):
         self.sendPacket(vehicle, None)
 
@@ -1150,39 +1189,3 @@ class mavComms:
             self.__packetMap[event.value].append(callback)
         else:
             self.__packetMap[event.value] = [callback]
-
-class rctConePacket(rctBinaryPacket):
-    def __init__(self, lat: float, lon: float, alt: float, power: float, angle: float, timestamp: dt.datetime = None):
-        self.lat = lat
-        self.lon = lon
-        self.alt = alt
-        self.power = power
-        self.angle = angle
-        if timestamp is None:
-            timestamp = dt.datetime.now()
-        self.timestamp = timestamp
-
-        self._pclass = 0x04
-        self._pid = 0x04
-        self._payload = struct.pack("<BQllHff", 0x01, int(timestamp.timestamp(
-        ) * 1e3), int(lat * 1e7), int(lon * 1e7), int(alt * 10), power, angle)
-
-
-    @classmethod
-    def matches(cls, packetClass: int, packetID: int):
-        return packetClass == 0x04 and packetID == 0x04
-
-    @classmethod
-    def from_bytes(cls, packet: bytes):
-        header = packet[0:6]
-        payload = packet[6:-2]
-        _, _, pcls, pid, _ = struct.unpack("<BBBBH", header)
-        if not cls.matches(pcls, pid):
-            raise RuntimeError("Incorrect packet type")
-        _, timeMS, lat7, lon7, alt1, power, angle = struct.unpack(
-            '<BQllHff', payload)
-        timestamp = dt.datetime.fromtimestamp(timeMS / 1e3)
-        lat = lat7 / 1e7
-        lon = lon7 / 1e7
-        alt = alt1 / 10
-        return rctConePacket(lat, lon, alt, power, angle, timestamp)
