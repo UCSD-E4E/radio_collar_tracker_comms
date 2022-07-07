@@ -54,6 +54,41 @@ from typing import (Any, Callable, Dict, Iterable, List, Optional, Tuple, Type,
 
 import RCTComms.transport
 
+class rctPingPacket(rctBinaryPacket):
+    def __init__(self, lat: float, lon: float, alt: float, txp: float, txf: int, timestamp: dt.datetime = None):
+        self.lat = lat
+        self.lon = lon
+        self.alt = alt
+        self.txp = txp
+        self.txf = txf
+        if timestamp is None:
+            timestamp = dt.datetime.now()
+        self.timestamp = timestamp
+
+        self._pclass = 0x04
+        self._pid = 0x01
+        self._payload = struct.pack("<BQllHfL", 0x01, int(timestamp.timestamp(
+        ) * 1e3), int(lat * 1e7), int(lon * 1e7), int(alt * 10), txp, txf)
+
+    @classmethod
+    def matches(cls, packetClass: int, packetID: int):
+        return packetClass == 0x04 and packetID == 0x01
+
+    @classmethod
+    def from_bytes(cls, packet: bytes):
+        header = packet[0:6]
+        payload = packet[6:-2]
+        _, _, pcls, pid, _ = struct.unpack("<BBBBH", header)
+        if not cls.matches(pcls, pid):
+            raise RuntimeError("Incorrect packet type")
+        _, timeMS, lat7, lon7, alt1, txp, txf = struct.unpack(
+            '<BQllHfL', payload)
+        timestamp = dt.datetime.fromtimestamp(timeMS / 1e3)
+        lat = lat7 / 1e7
+        lon = lon7 / 1e7
+        alt = alt1 / 10
+        return rctPingPacket(lat, lon, alt, txp, txf, timestamp)
+
 
 class PACKET_CLASS(enum.Enum):
     '''
@@ -483,40 +518,6 @@ class rctUpgradePacket(rctBinaryPacket):
         fileBytes = payload[0x0007:0x0007 + bytesLen]
         return rctUpgradePacket(numPacket, numTotal, fileBytes)
 
-class rctPingPacket(rctBinaryPacket):
-    def __init__(self, lat: float, lon: float, alt: float, txp: float, txf: int, timestamp: dt.datetime = None):
-        self.lat = lat
-        self.lon = lon
-        self.alt = alt
-        self.txp = txp
-        self.txf = txf
-        if timestamp is None:
-            timestamp = dt.datetime.now()
-        self.timestamp = timestamp
-
-        self._pclass = 0x04
-        self._pid = 0x01
-        self._payload = struct.pack("<BQllHfL", 0x01, int(timestamp.timestamp(
-        ) * 1e3), int(lat * 1e7), int(lon * 1e7), int(alt * 10), txp, txf)
-
-    @classmethod
-    def matches(cls, packetClass: int, packetID: int):
-        return packetClass == 0x04 and packetID == 0x01
-
-    @classmethod
-    def from_bytes(cls, packet: bytes):
-        header = packet[0:6]
-        payload = packet[6:-2]
-        _, _, pcls, pid, _ = struct.unpack("<BBBBH", header)
-        if not cls.matches(pcls, pid):
-            raise RuntimeError("Incorrect packet type")
-        _, timeMS, lat7, lon7, alt1, txp, txf = struct.unpack(
-            '<BQllHfL', payload)
-        timestamp = dt.datetime.fromtimestamp(timeMS / 1e3)
-        lat = lat7 / 1e7
-        lon = lon7 / 1e7
-        alt = alt1 / 10
-        return rctPingPacket(lat, lon, alt, txp, txf, timestamp)
 
 class rctConePacket(rctBinaryPacket):
     def __init__(self, lat: float, lon: float, alt: float, power: float, angle: float, timestamp: dt.datetime = None):
@@ -921,6 +922,7 @@ class gcsComms:
         :param gcs: GCS instance associated with this comms
         :type gcs: GCS.CollapseFrame
         '''
+        print("init comms")
         self.__log = logging.getLogger('rctGCS.gcsComms')
         self.sock = port
         self.__gcs = gcs
