@@ -910,7 +910,7 @@ class gcsComms:
     '''
     __BUFFER_LEN = 1024
 
-    def __init__(self, port: RCTComms.transport.RCTAbstractTransport, gcs: GCS.CollapseFrame, GC_HeartbeatWatchdogTime=30):
+    def __init__(self, port: RCTComms.transport.RCTAbstractTransport, disconnected: Callable[[], None], GC_HeartbeatWatchdogTime=30):
         '''
         Initializes the UDP interface on the specified port.  Also specifies a
         filename to use as a logfile, which defaults to no log.
@@ -919,13 +919,12 @@ class gcsComms:
         :type port: rctTransport.RCTAbstractTransport
         :param originString: Origin string
         :type originString: str
-        :param gcs: GCS instance associated with this comms
-        :type gcs: GCS.CollapseFrame
+        :param disconnected: callable to inform owner of a disconnection event
+        :type disconnected: Callable[[], None]
         '''
-        print("init comms")
         self.__log = logging.getLogger('rctGCS.gcsComms')
         self.sock = port
-        self.__gcs = gcs
+        self.__disconnected = disconnected
 
         self.__receiverThread: Optional[threading.Thread] = None
         self.__log.info('RTC gcsComms created')
@@ -959,7 +958,7 @@ class gcsComms:
             try:
                 data, addr = self.sock.receive(1024, 1)
                 if data is None:
-                    self.__gcs.disconnected()
+                    self.__disconnected()
                     break
                 packets = self.__parser.parseBytes(data)
                 for packet in packets:
@@ -985,7 +984,7 @@ class gcsComms:
             try:
                 data, addr = self.sock.receive(self.__BUFFER_LEN, 1)
                 if data is None:
-                    self.__gcs.disconnected()
+                    self.__disconnected()
                     break
                 self.__log.info("Received: %s" % data.hex())
 
