@@ -56,41 +56,6 @@ from typing import (Any, Callable, Dict, Iterable, List, Optional, Tuple, Type,
 
 import RCTComms.transport
 
-class rctPingPacket(rctBinaryPacket):
-    def __init__(self, lat: float, lon: float, alt: float, txp: float, txf: int, timestamp: dt.datetime = None):
-        self.lat = lat
-        self.lon = lon
-        self.alt = alt
-        self.txp = txp
-        self.txf = txf
-        if timestamp is None:
-            timestamp = dt.datetime.now()
-        self.timestamp = timestamp
-
-        self._pclass = 0x04
-        self._pid = 0x01
-        self._payload = struct.pack("<BQllHfL", 0x01, int(timestamp.timestamp(
-        ) * 1e3), int(lat * 1e7), int(lon * 1e7), int(alt * 10), txp, txf)
-
-    @classmethod
-    def matches(cls, packetClass: int, packetID: int):
-        return packetClass == 0x04 and packetID == 0x01
-
-    @classmethod
-    def from_bytes(cls, packet: bytes):
-        header = packet[0:6]
-        payload = packet[6:-2]
-        _, _, pcls, pid, _ = struct.unpack("<BBBBH", header)
-        if not cls.matches(pcls, pid):
-            raise RuntimeError("Incorrect packet type")
-        _, timeMS, lat7, lon7, alt1, txp, txf = struct.unpack(
-            '<BQllHfL', payload)
-        timestamp = dt.datetime.fromtimestamp(timeMS / 1e3)
-        lat = lat7 / 1e7
-        lon = lon7 / 1e7
-        alt = alt1 / 10
-        return rctPingPacket(lat, lon, alt, txp, txf, timestamp)
-
 
 class PACKET_CLASS(enum.Enum):
     '''
@@ -254,7 +219,41 @@ class rctBinaryPacket:
     def matches(cls, packetClass: int, packetID: int) -> bool:
         return True
 
+class rctPingPacket(rctBinaryPacket):
+    def __init__(self, lat: float, lon: float, alt: float, txp: float, txf: int, timestamp: dt.datetime = None):
+        self.lat = lat
+        self.lon = lon
+        self.alt = alt
+        self.txp = txp
+        self.txf = txf
+        if timestamp is None:
+            timestamp = dt.datetime.now()
+        self.timestamp = timestamp
 
+        self._pclass = 0x04
+        self._pid = 0x01
+        self._payload = struct.pack("<BQllHfL", 0x01, int(timestamp.timestamp(
+        ) * 1e3), int(lat * 1e7), int(lon * 1e7), int(alt * 10), txp, txf)
+
+    @classmethod
+    def matches(cls, packetClass: int, packetID: int):
+        return packetClass == 0x04 and packetID == 0x01
+
+    @classmethod
+    def from_bytes(cls, packet: bytes):
+        header = packet[0:6]
+        payload = packet[6:-2]
+        _, _, pcls, pid, _ = struct.unpack("<BBBBH", header)
+        if not cls.matches(pcls, pid):
+            raise RuntimeError("Incorrect packet type")
+        _, timeMS, lat7, lon7, alt1, txp, txf = struct.unpack(
+            '<BQllHfL', payload)
+        timestamp = dt.datetime.fromtimestamp(timeMS / 1e3)
+        lat = lat7 / 1e7
+        lon = lon7 / 1e7
+        alt = alt1 / 10
+        return rctPingPacket(lat, lon, alt, txp, txf, timestamp)
+    
 class rctHeartBeatPacket(rctBinaryPacket):
 
     class SDR_STATES(enum.Enum):
@@ -975,7 +974,8 @@ class gcsComms:
     '''
     __BUFFER_LEN = 1024
 
-    def __init__(self, port: RCTComms.transport.RCTTCPServer, GC_HeartbeatWatchdogTime=30):
+    def __init__(self, port: RCTComms.transport.RCTAbstractTransport,   
+                 disconnected: Callable[[], None], GC_HeartbeatWatchdogTime=30):
         '''
         Initializes the UDP interface on the specified port.  Also specifies a
         filename to use as a logfile, which defaults to no log.
@@ -987,7 +987,7 @@ class gcsComms:
         '''
         self.__log = logging.getLogger('rctGCS.gcsComms')
         self.sock = port
-        self.__clientList: Optional[List[RCTComms.transport.AbstractTransport]] = []
+        self.__disconnected = disconnected
 
         self.__receiverThread: Optional[threading.Thread] = None
         self.__log.info('RTC gcsComms created')
@@ -1017,12 +1017,12 @@ class gcsComms:
 
         if timeout is None:
             timeout = self.GC_HeartbeatWatchdogTime
-        while True:
-            self.__clientList = self.sock.getConnections()
-            if len(self.__clientList) < 1:
-                continue
+        for _ in range(timeout):
             try:
-                data, addr = self.__clientList[0].receive(1024, 1)
+                data, addr = self.sock.receive(1024, 1)
+                if data is None:
+                    self.__disconnected()
+                    break
                 packets = self.__parser.parseBytes(data)
                 for packet in packets:
                     if isinstance(packet, rctHeartBeatPacket):
@@ -1045,46 +1045,33 @@ class gcsComms:
         assert(self.__lastHeartbeat is not None)
 
         while self.HS_run:
-            self.__clientList = self.sock.getConnections()
+            try:
+                data, addr = self.sock.receive(self.__BUFFER_LEN, 1)
+                if data is None:
+                    self.__disconnected()
+                    break
+                self.__log.info("Received: %s" % data.hex())
 
-            if len(self.__clientList) == 0: # No clients currently connected
-                packet = rctDisconnectPacket()
-                packetCode = packet.getClassIDCode()
-                try:
-                    for callback in self.__packetMap[packetCode]:
-                        callback(packet=packet, addr=addr)
-                except KeyError:
-                    for callback in self.__packetMap[EVENTS.GENERAL_UNKNOWN.value]:
-                        callback(packet=packet, addr=addr)
-                finally:
-                    continue
-
-            for client in self.__clientList:
-                # TODO: client may close while in this loop, in which case we try to receive from a nonetype
-                try:
-                    data, addr = client.receive(self.__BUFFER_LEN, 1)
-                    self.__log.info("Received: %s from %s" % (data.hex(), addr))
-                    packets = self.__parser.parseBytes(data)
-                    for packet in packets:
-                        packetCode = packet.getClassIDCode()
-                        try:
-                            for callback in self.__packetMap[packetCode]:
-                                callback(packet=packet, addr=addr)
-                        except KeyError:
-                            for callback in self.__packetMap[EVENTS.GENERAL_UNKNOWN.value]:
-                                callback(packet=packet, addr=addr)
-                        except Exception as e:
-                            self.__log.error("Exception %s: %s" %
+                packets = self.__parser.parseBytes(data)
+                for packet in packets:
+                    packetCode = packet.getClassIDCode()
+                    try:
+                        for callback in self.__packetMap[packetCode]:
+                            callback(packet=packet, addr=addr)
+                    except KeyError:
+                        for callback in self.__packetMap[EVENTS.GENERAL_UNKNOWN.value]:
+                            callback(packet=packet, addr=addr)
+                    except Exception as e:
+                        self.__log.error("Exception %s: %s" %
                                          (type(e), str(e)))
-                            self.__log.error("Traceback: %s" %
+                        self.__log.error("Traceback: %s" %
                                          (traceback.format_exc()))
 
-                            for callback in self.__packetMap[EVENTS.GENERAL_EXCEPTION.value]:
-                                callback(packet=packet, addr=addr)
-                except TypeError:
-                    pass
-                except TimeoutError:
-                    pass
+                        for callback in self.__packetMap[EVENTS.GENERAL_EXCEPTION.value]:
+                            callback(packet=packet, addr=addr)
+
+            except TimeoutError:
+                pass
 
             if (dt.datetime.now() - self.__lastHeartbeat).total_seconds() > self.GC_HeartbeatWatchdogTime:
                 self.__log.warning(
@@ -1128,9 +1115,6 @@ class gcsComms:
         if self.__receiverThread is not None:
             self.__receiverThread.join(timeout=1)
         self.__log.info('RCT gcsComms stopped')
-        for client in self.__clientList:
-            client.close()
-        self.__clientList = []
         self.sock.close()
 
     def __processHeartbeat(self, packet: rctBinaryPacket, addr: str):
@@ -1171,8 +1155,7 @@ class gcsComms:
         msg = header + payload
         cksum = binascii.crc_hqx(msg, 0xFFFF).to_bytes(2, 'big')
         self.__log.info("Send: %s" % ((msg + cksum).hex()))
-        for client in self.__clientList:
-            client.send(msg)
+        self.sock.send(msg, self.__mavIP)
 
     def sendPacket(self, packet: rctBinaryPacket):
         '''
@@ -1182,8 +1165,7 @@ class gcsComms:
         '''
 
         self.__log.info("Send: %s" % (packet))
-        for client in self.__clientList:
-            client.send(packet.to_bytes())
+        self.sock.send(packet.to_bytes(), self.__mavIP)
 
 
 class mavComms:

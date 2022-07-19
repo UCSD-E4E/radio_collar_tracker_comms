@@ -43,7 +43,7 @@ import selectors
 import types
 import socket
 import threading
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 
 class RCTAbstractTransport(abc.ABC):
@@ -270,15 +270,17 @@ class RCTTCPClient(RCTAbstractTransport):
         return self.__socket is not None
 
 class RCTTCPServer:
-    def __init__(self, port: int):
+    def __init__(self, port: int, connectionHandler: Callable[[RCTAbstractTransport, int], None]):
         '''
         Creates an RCTTCPServer object to be bound to the specified port.
         '''
         self.__port = port
         self.__socket: Optional[socket.socket] = None
         self.__generatorThread: Optional[threading.Thread] = None
-        self.__connList: Optional[List[RCTTCPServerConnection]] = []
         self.running = False
+        self.__hostAdr = ''
+        self.__connectionHandler = connectionHandler
+        self.__connectionIndex = 0;
 
     def open(self):
         '''
@@ -290,18 +292,10 @@ class RCTTCPServer:
 
         self.running = True
         self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.__socket.bind(('', self.__port))
+        self.__socket.bind((self.__hostAdr, self.__port))
+        self.__socket.listen()
         self.__generatorThread = threading.Thread(target=self.generatorLoop)
         self.__generatorThread.start()
-
-    def clientDisconnect(self):
-        '''
-        Removes clients from this server's list of connections once that client
-        has closed.
-        '''
-        for conn in self.__connList:
-            if not conn.isOpen():
-                self.__connList.remove(conn)
 
     def generatorLoop(self):
         '''
@@ -311,20 +305,14 @@ class RCTTCPServer:
 
         while self.running:
             try:
-                self.__socket.listen()
                 clientConn, clientAddr = self.__socket.accept()
+                print('New connection accepted from {}'.format(clientAddr))
                 if clientConn is not None and clientAddr is not None:
-                    newConnection = RCTTCPServerConnection(clientAddr, clientConn, self)
-                    newConnection.open()
-                    self.__connList.append(newConnection)
-            except:
-                pass
-
-    def getConnections(self):
-        '''
-        Return the list of clients currently being serviced
-        '''
-        return self.__connList
+                    newConnection = RCTTCPConnection(clientAddr, clientConn, self.__connectionIndex)
+                    self.__connectionHandler(newConnection, self.__connectionIndex)
+                    self.__connectionIndex += 1
+            except ConnectionAbortedError:
+                break
 
     def close(self):
         '''
@@ -336,47 +324,59 @@ class RCTTCPServer:
         try:
             self.running = False
             self.__generatorThread.join(timeout=1)
-            for conn in self.__connList:
-                if conn.isOpen():
-                    conn.close()
             self.__socket.close()
-            self.__connList = []
         finally:
             self.__socket = None
+            self.__generatorThread = None
 
-class RCTTCPServerConnection(RCTAbstractTransport):
-    def __init__(self, addr, conn: socket.socket, server: RCTTCPServer):
+class RCTTCPConnection(RCTAbstractTransport):
+    def __init__(self, addr: Tuple[str, int], conn: socket.socket, id: int):
         self.__addr = addr
         self.__socket = conn
         self.running = False
-        self.server = server
+        self.__id = id
+        self.__sel = selectors.DefaultSelector()
 
     def open(self):
         self.running = True
+        data = types.SimpleNamespace(addr=self.__addr, inb=b"", outb=b"")
+        self.__sel.register(self.__socket, selectors.EVENT_READ, data=data)
 
     def close(self):
         if self.__socket is None:
             raise RuntimeError()
         try:
+            self.__sel.unregister(self.__socket)
             self.__socket.close()
         finally:
             self.__socket = None
-            self.server.clientDisconnect()
+            self.__sel = None
 
     def receive(self, bufLen: int, timeout: int=None):
         if self.__socket is None:
             raise RuntimeError()
         if self.__addr is None:
             raise RuntimeError()
+        
+        events = self.__sel.select(timeout=timeout)
+        if len(events) < 1:
+            raise TimeoutError()
 
-        data = self.__socket.recv(bufLen)
-        if len(data) == 0:
-            self.close()
-        else:
-            return data, self.__addr[0]
+        for key, mask in events:
+            if mask and selectors.EVENT_READ:
+                recv_data = key.fileobj.recv(bufLen)
+                if recv_data:
+                    return recv_data, self.__addr[0]
+                else:
+                    self.__sel.unregister(key.fileobj)
+                    key.fileobj.close()
+                    self.__socket = None
+                    self.__sel = None
+                    
+        return None, self.__addr[0]
+
 
     def send(self, data: bytes):
-
         if self.__socket is None:
             raise RuntimeError()
         self.__socket.send(data)
