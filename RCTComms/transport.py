@@ -313,6 +313,11 @@ class RCTTCPServer:
                     self.__connectionIndex += 1
             except ConnectionAbortedError:
                 break
+            except WindowsError as e:
+                if e.winerror == 10038:
+                    break
+                else:
+                    raise
 
     def close(self):
         '''
