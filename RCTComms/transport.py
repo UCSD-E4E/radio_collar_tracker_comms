@@ -249,6 +249,7 @@ class RCTTCPClient(RCTAbstractTransport):
             self.__socket.shutdown(socket.SHUT_RDWR)
         except:
             pass
+        self.__socket.close()
         self.__socket = None
 
     def receive(self, bufLen: int, timeout: int=None):
@@ -270,7 +271,7 @@ class RCTTCPClient(RCTAbstractTransport):
         return self.__socket is not None
 
 class RCTTCPServer:
-    def __init__(self, port: int, connectionHandler: Callable[[RCTAbstractTransport, int], None]):
+    def __init__(self, port: int, connectionHandler: Callable[[RCTAbstractTransport, int], None], addr: str = ''):
         '''
         Creates an RCTTCPServer object to be bound to the specified port.
         '''
@@ -278,9 +279,9 @@ class RCTTCPServer:
         self.__socket: Optional[socket.socket] = None
         self.__generatorThread: Optional[threading.Thread] = None
         self.running = False
-        self.__hostAdr = ''
+        self.__hostAdr = addr
         self.__connectionHandler = connectionHandler
-        self.__connectionIndex = 0;
+        self.__connectionIndex = 0
 
     def open(self):
         '''
@@ -300,7 +301,7 @@ class RCTTCPServer:
     def generatorLoop(self):
         '''
         Thread to accept new connections to the server. A new
-        RCTTCPServerConnection object is made each time a client connects.
+        RCTTCPConnection object is made each time a client connects.
         '''
 
         while self.running:
@@ -313,6 +314,11 @@ class RCTTCPServer:
                     self.__connectionIndex += 1
             except ConnectionAbortedError:
                 break
+            except WindowsError as e:
+                if e.winerror == 10038:
+                    break
+                else:
+                    raise
 
     def close(self):
         '''
@@ -372,11 +378,11 @@ class RCTTCPConnection(RCTAbstractTransport):
                     key.fileobj.close()
                     self.__socket = None
                     self.__sel = None
-                    
+
         return None, self.__addr[0]
 
 
-    def send(self, data: bytes):
+    def send(self, data: bytes, dest=None):
         if self.__socket is None:
             raise RuntimeError()
         self.__socket.send(data)
