@@ -376,7 +376,7 @@ class RCTTCPConnection(RCTAbstractTransport):
         return None, self.__addr[0]
 
 
-    def send(self, data: bytes):
+    def send(self, data: bytes, dest=None):
         if self.__socket is None:
             raise RuntimeError()
         self.__socket.send(data)

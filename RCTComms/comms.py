@@ -20,8 +20,6 @@
 #
 # DATE      WHO Description
 # -----------------------------------------------------------------------------
-# 07/14/22  HG  Began converting gcsComms to manage multiple mavComms (clients);
-#               Added preliminary rctNewConnectionPacket and rctDisconnectPacket
 # 03/26/22  HG  Changed GCS to server and drone to client
 # 07/29/20  NH  Added isOpen to mavComms
 # 07/23/20  NH  Initial docstrings
@@ -55,7 +53,6 @@ from typing import (Any, Callable, Dict, Iterable, List, Optional, Tuple, Type,
                     Union)
 
 import RCTComms.transport
-
 
 class PACKET_CLASS(enum.Enum):
     '''
@@ -219,6 +216,7 @@ class rctBinaryPacket:
     def matches(cls, packetClass: int, packetID: int) -> bool:
         return True
 
+
 class rctPingPacket(rctBinaryPacket):
     def __init__(self, lat: float, lon: float, alt: float, txp: float, txf: int, timestamp: dt.datetime = None):
         self.lat = lat
@@ -253,7 +251,8 @@ class rctPingPacket(rctBinaryPacket):
         lon = lon7 / 1e7
         alt = alt1 / 10
         return rctPingPacket(lat, lon, alt, txp, txf, timestamp)
-    
+
+
 class rctHeartBeatPacket(rctBinaryPacket):
 
     class SDR_STATES(enum.Enum):
@@ -361,33 +360,6 @@ class rctExceptionPacket(rctBinaryPacket):
         tbStr = payload[0x0005 + eLen: 0x0005 + eLen + tbLen].decode()
         return rctExceptionPacket(eStr, tbStr)
 
-class rctNewConnectionPacket(rctBinaryPacket):
-    def __init__(self, conn: str):
-        self._pclass = 0x01
-        self._pid = 0x03
-        self._payload = b'\x01'
-
-    @classmethod
-    def matches(cls, packetClass: int, packetID: int):
-        return packetClass == 0x01 and packetID == 0x03
-
-    @classmethod
-    def from_bytes(cls, packet: bytes):
-        return rctNewConnectionPacket()
-
-class rctDisconnectPacket(rctBinaryPacket):
-    def __init__(self):
-        self._pclass = 0x01
-        self._pid = 0x04
-        self._payload = b'\x01'
-
-    @classmethod
-    def matches(cls, packetClass: int, packetID: int):
-        return packetClass == 0x01 and packetID == 0x04
-
-    @classmethod
-    def from_bytes(cls, packet: bytes):
-        return rctDisconnectPacket()
 
 class rctFrequenciesPacket(rctBinaryPacket):
     def __init__(self, frequencies: list):
@@ -617,40 +589,6 @@ class rctVehiclePacket(rctBinaryPacket):
         alt = alt1 / 10
         return rctVehiclePacket(lat, lon, alt, hdg, timestamp)
 
-class rctConePacket(rctBinaryPacket):
-    def __init__(self, lat: float, lon: float, alt: float, power: float, angle: float, timestamp: dt.datetime = None):
-        self.lat = lat
-        self.lon = lon
-        self.alt = alt
-        self.power = power
-        self.angle = angle
-        if timestamp is None:
-            timestamp = dt.datetime.now()
-        self.timestamp = timestamp
-
-        self._pclass = 0x04
-        self._pid = 0x04
-        self._payload = struct.pack("<BQllHff", 0x01, int(timestamp.timestamp(
-        ) * 1e3), int(lat * 1e7), int(lon * 1e7), int(alt * 10), power, angle)
-
-    @classmethod
-    def matches(cls, packetClass: int, packetID: int):
-        return packetClass == 0x04 and packetID == 0x04
-
-    @classmethod
-    def from_bytes(cls, packet: bytes):
-        header = packet[0:6]
-        payload = packet[6:-2]
-        _, _, pcls, pid, _ = struct.unpack("<BBBBH", header)
-        if not cls.matches(pcls, pid):
-            raise RuntimeError("Incorrect packet type")
-        _, timeMS, lat7, lon7, alt1, power, angle = struct.unpack(
-            '<BQllHff', payload)
-        timestamp = dt.datetime.fromtimestamp(timeMS / 1e3)
-        lat = lat7 / 1e7
-        lon = lon7 / 1e7
-        alt = alt1 / 10
-        return rctConePacket(lat, lon, alt, power, angle, timestamp)
 
 class rctACKCommand(rctBinaryPacket):
     def __init__(self, commandID: int, ack: bool, timestamp: dt.datetime = None):
@@ -869,15 +807,13 @@ class rctUPGRADECommand(rctBinaryPacket):
 class EVENTS(enum.Enum):
     STATUS_HEARTBEAT = 0x0101
     STATUS_EXCEPTION = 0x0102
-    STATUS_NEW_CONNECTION = 0x0103
-    STATUS_DISCONNECT = 0x0104
     CONFIG_FREQUENCIES = 0x0201
     CONFIG_OPTIONS = 0x0202
     UPGRADE_STATUS = 0x0301
     UPGRADE_DATA = 0x0302
     DATA_PING = 0x0401
     DATA_VEHICLE = 0x0402
-    DATA_CONE = 0x0404
+    DATA_CONE = 0x0404 # TODO: What value should DATA_CONE actually have? I just guessed.
     COMMAND_ACK = 0x0501
     COMMAND_GETF = 0x0502
     COMMAND_SETF = 0x0503
@@ -901,8 +837,6 @@ class rctBinaryPacketFactory:
     packetMap: Dict[int, Type[rctBinaryPacket]] = {
         EVENTS.STATUS_HEARTBEAT.value: rctHeartBeatPacket,
         EVENTS.STATUS_EXCEPTION.value: rctExceptionPacket,
-        EVENTS.STATUS_NEW_CONNECTION.value: rctNewConnectionPacket,
-        EVENTS.STATUS_DISCONNECT.value: rctDisconnectPacket,
         EVENTS.CONFIG_FREQUENCIES.value: rctFrequenciesPacket,
         EVENTS.CONFIG_OPTIONS.value: rctOptionsPacket,
         EVENTS.UPGRADE_STATUS.value: rctUpgradeStatusPacket,
@@ -968,14 +902,16 @@ class rctBinaryPacketFactory:
         return packets
 
 
+
+
 class gcsComms:
     '''
     Radio Collar Tracker UDP Interface
     '''
     __BUFFER_LEN = 1024
+    __lock = threading.Lock()
 
-    def __init__(self, port: RCTComms.transport.RCTAbstractTransport,   
-                 disconnected: Callable[[], None], GC_HeartbeatWatchdogTime=30):
+    def __init__(self, port: RCTComms.transport.RCTAbstractTransport, disconnected: Callable[[], None], GC_HeartbeatWatchdogTime=30):
         '''
         Initializes the UDP interface on the specified port.  Also specifies a
         filename to use as a logfile, which defaults to no log.
@@ -984,6 +920,8 @@ class gcsComms:
         :type port: rctTransport.RCTAbstractTransport
         :param originString: Origin string
         :type originString: str
+        :param disconnected: callback to inform owner of a disconnected event
+        :type disconnected: Callable[[], None]
         '''
         self.__log = logging.getLogger('rctGCS.gcsComms')
         self.sock = port
@@ -992,6 +930,7 @@ class gcsComms:
         self.__receiverThread: Optional[threading.Thread] = None
         self.__log.info('RTC gcsComms created')
         self.HS_run = False
+        self.__mavIP: Optional[str] = None
         self.__lastHeartbeat: Optional[dt.datetime] = None
         self.__packetMap: Dict[int, List[Callable]] = {
             EVENTS.STATUS_HEARTBEAT.value: [self.__processHeartbeat],
@@ -1014,7 +953,6 @@ class gcsComms:
         :param timeout: Seconds to wait before timing out
         :type timeout: Integer
         '''
-
         if timeout is None:
             timeout = self.GC_HeartbeatWatchdogTime
         for _ in range(timeout):
@@ -1040,7 +978,6 @@ class gcsComms:
         '''
         Receiver thread
         '''
-
         self.__log.info('RCT gcsComms rxThread started')
         assert(self.__lastHeartbeat is not None)
 
@@ -1083,23 +1020,22 @@ class gcsComms:
         '''
         Starts the receiver.
         '''
-
         self.__log.info("RCT gcsComms starting...")
         self.sock.open()
-        mavIP, packets = self.__waitForHeartbeat(guiTick=gui)
-        if mavIP is None or packets is None:
+        self.__mavIP, packets = self.__waitForHeartbeat(guiTick=gui)
+        if self.__mavIP is None or packets is None:
             raise RuntimeError("Failed to receive heartbeats")
         for packet in packets:
             packetCode = packet.getClassIDCode()
             try:
                 for callback in self.__packetMap[packetCode]:
-                    callback(packet=packet, addr=mavIP)
+                    callback(packet=packet, addr=self.__mavIP)
             except KeyError:
                 for callback in self.__packetMap[EVENTS.GENERAL_UNKNOWN.value]:
-                    callback(packet=packet, addr=mavIP)
+                    callback(packet=packet, addr=self.__mavIP)
             except Exception:
                 for callback in self.__packetMap[EVENTS.GENERAL_EXCEPTION.value]:
-                    callback(packet=packet, addr=mavIP)
+                    callback(packet=packet, addr=self.__mavIP)
         self.HS_run = True
         self.__receiverThread = threading.Thread(target=self.__receiverLoop)
         self.__receiverThread.start()
@@ -1109,7 +1045,6 @@ class gcsComms:
         '''
         Stops the receiver.
         '''
-
         self.__log.info("HS_run set to False")
         self.HS_run = False
         if self.__receiverThread is not None:
@@ -1134,10 +1069,17 @@ class gcsComms:
                 dictionary shall the the packet payload, and the addr shall be
                 the address of the MAV
         '''
+        callback = self.synchronizedCallback(callback)
         if event.value in self.__packetMap:
             self.__packetMap[event.value].append(callback)
         else:
             self.__packetMap[event.value] = [callback]
+            
+    def synchronizedCallback(self, callback):
+        def lockAndCall(packet: rctBinaryPacket, addr: str):
+            with gcsComms.__lock:
+                callback(packet, addr) 
+        return lockAndCall               
 
     def unregisterCallback(self, event: EVENTS, callback):
         self.__packetMap[event.value].remove(callback)
@@ -1163,7 +1105,7 @@ class gcsComms:
         :param packet:
         :type packet:
         '''
-
+ 
         self.__log.info("Send: %s" % (packet))
         self.sock.send(packet.to_bytes(), self.__mavIP)
 
@@ -1219,12 +1161,9 @@ class mavComms:
 
     def sendCone(self, cone: rctConePacket):
         self.sendPacket(cone, None)
-
+        
     def sendVehicle(self, vehicle: rctVehiclePacket):
         self.sendPacket(vehicle, None)
-
-    def sendCone(self, cone: rctConePacket): # sendCone in simulator; did my best to implement
-        self.sendPacket(cone, None)
 
     def sendException(self, exception: str, traceback: str):
         packet = rctExceptionPacket(exception, traceback)
