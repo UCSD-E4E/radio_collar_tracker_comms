@@ -1097,7 +1097,7 @@ class gcsComms:
         msg = header + payload
         cksum = binascii.crc_hqx(msg, 0xFFFF).to_bytes(2, 'big')
         self.__log.info("Send: %s" % ((msg + cksum).hex()))
-        self.sock.send(msg, self.__mavIP)
+        self.sock.send(msg)
 
     def sendPacket(self, packet: rctBinaryPacket):
         '''
@@ -1107,7 +1107,7 @@ class gcsComms:
         '''
  
         self.__log.info("Send: %s" % (packet))
-        self.sock.send(packet.to_bytes(), self.__mavIP)
+        self.sock.send(packet.to_bytes())
 
 
 class mavComms:
