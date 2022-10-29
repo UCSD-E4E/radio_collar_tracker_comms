@@ -7,9 +7,12 @@ class COMMAND_ID(enum.Enum):
     '''
     Command Packet IDs
     '''
+    SET_TIME = 0x00
     SET_ALARM = 0x01
-    GET_ALARM = 0x02
-    CLEAR_ALARM = 0x03
+    CLEAR_ALARM = 0x02
+    GET_TIME = 0x03
+    SET_STATE = 0x04
+    GET_TIME_ACK = 0x05
     
 class stBinaryPacket:
     '''
@@ -72,62 +75,62 @@ class SETALARMCommand(stBinaryPacket):
         '''
         :param msec: The amount of time (in miliseconds) that the alarm will be set (how long to turn off)
         '''
-        self._pid = 0x01
+        self._pid = COMMAND_ID.SET_ALARM.value
         self._payload = struct.pack('<I', msec)
         self.time = msec
 
     @classmethod
     def matches(cls, packetID: int):
-        return packetID == 0x01
+        return packetID == COMMAND_ID.SET_ALARM.value
 
     @classmethod
     def from_bytes(cls, packet: bytes):
         header = packet[0:6]
-        payload = packet[6:0] 
+        payload = packet[6:] 
         _, _, _, pid = struct.unpack("<BBHH", header)
-        if not cls.matches(pid):
+        if pid != COMMAND_ID.SET_ALARM.value:
             raise RuntimeError("Incorrect packet type")
         time = struct.unpack('<I', payload)
-        return SETALARMCommand(time)
+        return cls(time)
     
-class GETALARMCommand(stBinaryPacket):
+class GETTIMECommand(stBinaryPacket):
     '''
     Packet for sending a get alarm command
     '''
     def __init__(self):
-        self._pid = 0x02
+        self._pid = COMMAND_ID.GET_TIME.value
         self._payload = struct.pack('<')
 
     @classmethod
     def matches(cls, packetID: int):
-        return packetID == 0x02
+        return packetID == COMMAND_ID.GET_TIME.value
 
     @classmethod
     def from_bytes(cls, packet: bytes):
         header = packet[0:6]
-        payload = packet[6:0]
+        payload = packet[6:]
         _, _, _, pid= struct.unpack("<BBHB", header)
-        if not cls.matches(pid):
+        if pid != COMMAND_ID.GET_TIME.value:
             raise RuntimeError("Incorrect packet type")
-        return GETALARMCommand()
+        return cls()
     
 class CLEARALARMCommand(stBinaryPacket):
     '''
     Packet for sending a clear alarm command
     '''
     def __init__(self):
-        self._pid = 0x3
+        self._pid = COMMAND_ID.CLEAR_ALARM.value
         self._payload = struct.pack('<')
 
     @classmethod
     def matches(cls, packetID: int):
-        return packetID == 0x03
+        return packetID == COMMAND_ID.CLEAR_ALARM.value
 
     @classmethod
     def from_bytes(cls, packet: bytes):
         header = packet[0:6]
-        payload = packet[6:0]
+        payload = packet[6:]
         _, _, _, pid = struct.unpack("<BBHB", header)
-        if not cls.matches(pid):
+        if pid != COMMAND_ID.CLEAR_ALARM.value:
             raise RuntimeError("Incorrect packet type")
-        return CLEARALARMCommand()
+        return cls()
