@@ -1076,7 +1076,6 @@ class mavComms:
     def start(self):
         self.__log.info('RCT mavComms starting...')
         self.HS_run = True
-        self.__port.open()
         self.__rxThread = threading.Thread(target=self.__receiver)
         self.__rxThread.start()
 
@@ -1109,6 +1108,8 @@ class mavComms:
         self.sendToAll(packet)
 
     def __receiver(self):
+        if not self.__port.isOpen():
+            self.__port.open()
         while self.HS_run is True:
             try:
                 data, addr = self.__port.receive(1024, 1)
