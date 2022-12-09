@@ -1070,6 +1070,8 @@ class mavComms:
 
         self.__parser = rctBinaryPacketFactory()
 
+        self.port_open_event = threading.Event()
+
     def isOpen(self):
         return self.__port.isOpen()
 
@@ -1084,6 +1086,7 @@ class mavComms:
         self.HS_run = False
         if self.__rxThread is not None:
             self.__rxThread.join(timeout=1)
+        self.port_open_event.clear()
         self.__port.close()
         self.__log.info('RCT mavComms stopped')
 
@@ -1110,6 +1113,7 @@ class mavComms:
     def __receiver(self):
         if not self.__port.isOpen():
             self.__port.open()
+        self.port_open_event.set()
         while self.HS_run is True:
             try:
                 data, addr = self.__port.receive(1024, 1)
