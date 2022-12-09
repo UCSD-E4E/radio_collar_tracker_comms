@@ -1,16 +1,23 @@
 import itertools
-from os import urandom
 import queue
 import socket
 import threading
 import time
 from dataclasses import dataclass
+from os import urandom
 from random import randint, random, randrange, seed
 from typing import Any, Dict, List, Union
 
 import pytest
-from RCTComms.comms import (EVENTS, OPTIONS_SCOPE, gcsComms, mavComms, rctACKCommand, rctExceptionPacket,
-                            rctFrequenciesPacket, rctGETFCommand, rctGETOPTCommand, rctHeartBeatPacket, rctOptionsPacket, rctPingPacket, rctSETFCommand, rctSETOPTCommand, rctSTARTCommand, rctSTOPCommand, rctUPGRADECommand, rctUpgradePacket, rctUpgradeStatusPacket, rctVehiclePacket)
+
+from RCTComms.comms import (EVENTS, OPTIONS_SCOPE, gcsComms, mavComms,
+                            rctACKCommand, rctExceptionPacket,
+                            rctFrequenciesPacket, rctGETFCommand,
+                            rctGETOPTCommand, rctHeartBeatPacket,
+                            rctOptionsPacket, rctPingPacket, rctSETFCommand,
+                            rctSETOPTCommand, rctSTARTCommand, rctSTOPCommand,
+                            rctUPGRADECommand, rctUpgradePacket,
+                            rctUpgradeStatusPacket, rctVehiclePacket)
 from RCTComms.transport import RCTTCPClient, RCTTCPServer
 
 
