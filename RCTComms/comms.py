@@ -1096,7 +1096,6 @@ class mavComms:
 
     def sendPacket(self, packet: rctBinaryPacket, dest: Optional[str]):
         self.__log.info('Send: %s' % (packet))
-        print("TX: %s" % packet)
         self.__port.send(packet.to_bytes(), dest)
 
     def sendPing(self, ping: rctPingPacket):
