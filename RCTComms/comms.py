@@ -937,7 +937,7 @@ class gcsComms:
 
         while self.HS_run:
             try:
-                data, addr = self.sock.receive(buflen=self.__BUFFER_LEN, timeout=1)
+                data, addr = self.sock.receive(bufLen=self.__BUFFER_LEN, timeout=1)
                 if len(data) == 0:
                     continue
                 self.__log.info("Received: %s" % data.hex())
