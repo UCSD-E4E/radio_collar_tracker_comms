@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from os import urandom
 from random import randint, random, randrange, seed
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import pytest
 
@@ -23,29 +23,52 @@ from RCTComms.transport import RCTTCPClient, RCTTCPServer
 
 @dataclass
 class CommsPair:
+    """Pair of MAV/GCS comms
+    """
     gcs: gcsComms
     mav: mavComms
 
 def start_gcs(gcs: gcsComms):
+    """GCS Start Logic
+
+    Args:
+        gcs (gcsComms): GCS Object
+    """
     gcs.start()
 
 def start_mav(mav: mavComms):
+    """MAV Start Logics
+
+    Args:
+        mav (mavComms): MAV Ovject
+    """
     mav.start()
     mav.sendToGCS(rctHeartBeatPacket(0, 0, 0, 0, 0))
 
-@pytest.fixture
-def comms():
-    ip = '127.0.0.1'
-    with socket.socket() as s:
-        s.bind(('', 0))
-        port = s.getsockname()[1]
+@pytest.fixture(name='comms')
+def create_comms() -> CommsPair:
+    """Creates a Comms Pair
+
+    Raises:
+        TimeoutError: Failed to setup pair
+
+    Returns:
+        CommsPair: Comms Pair
+
+    Yields:
+        Iterator[CommsPair]: _description_
+    """
+    addr = '127.0.0.1'
+    with socket.socket() as sock:
+        sock.bind(('', 0))
+        port = sock.getsockname()[1]
     server = RCTTCPServer(port)
-    client = RCTTCPClient(port, ip)
+    client = RCTTCPClient(port, addr)
     gcs = gcsComms(server)
     mav = mavComms(client)
-    
-    gcs_start = threading.Thread(target=start_gcs, args=(gcs,))
-    mav_start = threading.Thread(target=start_mav, args=(mav,))
+
+    gcs_start = threading.Thread(target=start_gcs, args=(gcs,), name='gcs_start')
+    mav_start = threading.Thread(target=start_mav, args=(mav,), name='mav_start')
     gcs_start.start()
     time.sleep(0.5)
     mav_start.start()
@@ -54,18 +77,23 @@ def comms():
     if mav_start.is_alive() or gcs_start.is_alive():
         raise TimeoutError()
 
-    yield(CommsPair(gcs, mav))
+    yield CommsPair(gcs, mav)
 
     mav.stop()
     gcs.stop()
 
 
 def test_heartbeat(comms: CommsPair):
-    heartbeat_queue: queue.Queue[rctHeartBeatPacket] = queue.Queue()
-    def cb(packet: rctHeartBeatPacket, addr: str):
+    """Tests heartbeats
+
+    Args:
+        comms (CommsPair): Comms Pair
+    """
+    heartbeat_queue: "queue.Queue[rctHeartBeatPacket]" = queue.Queue()
+    def cb_(packet: rctHeartBeatPacket, addr: str): # pylint: disable=unused-argument
         heartbeat_queue.put(packet)
 
-    comms.gcs.registerCallback(EVENTS.STATUS_HEARTBEAT, cb)    
+    comms.gcs.registerCallback(EVENTS.STATUS_HEARTBEAT, cb_)
     params = [
         [e.value for e in rctHeartBeatPacket.SYS_STATES],
         [e.value for e in rctHeartBeatPacket.SDR_STATES],
@@ -76,57 +104,78 @@ def test_heartbeat(comms: CommsPair):
     for param in itertools.product(*params):
         heartbeat = rctHeartBeatPacket(*param)
         comms.mav.sendToGCS(heartbeat)
-        rx = heartbeat_queue.get(True, timeout=2)
-        assert(rx == heartbeat)
-        assert(rx.systemState == heartbeat.systemState)
-        assert(rx.sdrState == heartbeat.sdrState)
-        assert(rx.sensorState == heartbeat.sensorState)
-        assert(rx.storageState == heartbeat.storageState)
-        assert(rx.switchState == heartbeat.switchState)
-        assert(abs((rx.timestamp - heartbeat.timestamp).total_seconds()) < 1e-3)
+        rx_ = heartbeat_queue.get(True, timeout=2)
+        assert rx_ == heartbeat
+        assert rx_.systemState == heartbeat.systemState
+        assert rx_.sdrState == heartbeat.sdrState
+        assert rx_.sensorState == heartbeat.sensorState
+        assert rx_.storageState == heartbeat.storageState
+        assert rx_.switchState == heartbeat.switchState
+        assert abs((rx_.timestamp - heartbeat.timestamp).total_seconds()) < 1e-3
 
 def test_exception(comms: CommsPair):
-    exc_queue: queue.Queue[rctExceptionPacket] = queue.Queue()
-    def cb(packet: rctExceptionPacket, addr: str):
+    """Tests exceptions
+
+    Args:
+        comms (CommsPair): Comms Pair
+    """
+    exc_queue: "queue.Queue[rctExceptionPacket]" = queue.Queue()
+    def cb_(packet: rctExceptionPacket, addr: str): # pylint: disable=unused-argument
         exc_queue.put(packet)
-    
-    comms.gcs.registerCallback(EVENTS.STATUS_EXCEPTION, cb)
+
+    comms.gcs.registerCallback(EVENTS.STATUS_EXCEPTION, cb_)
 
     exc = rctExceptionPacket('test_exc', 'test_tb')
     comms.mav.sendToGCS(exc)
-    rx = exc_queue.get(True, timeout=2)
-    assert(rx == exc)
-    assert(rx.exception == exc.exception)
-    assert(rx.traceback == exc.traceback)
+    rx_ = exc_queue.get(True, timeout=2)
+    assert rx_ == exc
+    assert rx_.exception == exc.exception
+    assert rx_.traceback == exc.traceback
 
 @pytest.mark.parametrize('n_freqs', [1, 2, 4, 8])
 def test_frequencies(comms: CommsPair, n_freqs: int):
-    pkt_queue: queue.Queue[rctFrequenciesPacket] = queue.Queue()
-    def cb(packet: rctFrequenciesPacket, addr: str):
+    """Tests sending frequencies
+
+    Args:
+        comms (CommsPair): Comms Pair
+        n_freqs (int): Number of frequencies
+    """
+    pkt_queue: "queue.Queue[rctFrequenciesPacket]" = queue.Queue()
+    def cb_(packet: rctFrequenciesPacket, addr: str): # pylint: disable=unused-argument
         pkt_queue.put(packet)
-    
-    comms.mav.registerCallback(EVENTS.CONFIG_FREQUENCIES, cb)
+
+    comms.mav.registerCallback(EVENTS.CONFIG_FREQUENCIES, cb_)
 
     freqs = rctFrequenciesPacket([randint(172000000, 174000000) for _ in range(n_freqs)])
     comms.gcs.sendPacket(freqs)
 
-    rx = pkt_queue.get(True, timeout=2)
-    assert(rx == freqs)
-    assert(rx.frequencies == freqs.frequencies)
+    rx_ = pkt_queue.get(True, timeout=2)
+    assert rx_ == freqs
+    assert rx_.frequencies == freqs.frequencies
 
-@pytest.mark.parametrize('opt_scope', 
+@pytest.mark.parametrize('opt_scope',
     [
-        (OPTIONS_SCOPE.BASE_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords), 
-        (OPTIONS_SCOPE.EXP_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords + OPTIONS_SCOPE._expOptionKeywords), 
-        (OPTIONS_SCOPE.ENG_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords + OPTIONS_SCOPE._expOptionKeywords + OPTIONS_SCOPE._engOptionKeywords)
+         # pylint: disable=protected-access
+        (OPTIONS_SCOPE.BASE_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords),
+        (OPTIONS_SCOPE.EXP_OPTIONS,
+            OPTIONS_SCOPE._baseOptionKeywords + OPTIONS_SCOPE._expOptionKeywords),
+        (OPTIONS_SCOPE.ENG_OPTIONS,
+            OPTIONS_SCOPE._baseOptionKeywords + OPTIONS_SCOPE._expOptionKeywords +\
+            OPTIONS_SCOPE._engOptionKeywords)
     ])
-def test_options(comms: CommsPair, opt_scope):
+def test_options(comms: CommsPair, opt_scope: Tuple[int, List[str]]):
+    """Test sending options
+
+    Args:
+        comms (CommsPair): Comms Pair
+        opt_scope (Tuple[int, List[str]]): Scope of options
+    """
     seed(0)
-    pkt_queue: queue.Queue[rctOptionsPacket] = queue.Queue()
-    def cb(packet: rctOptionsPacket, addr: str):
+    pkt_queue: "queue.Queue[rctOptionsPacket]" = queue.Queue()
+    def cb_(packet: rctOptionsPacket, addr: str): # pylint: disable=unused-argument
         pkt_queue.put(packet)
 
-    comms.mav.registerCallback(EVENTS.CONFIG_OPTIONS, cb)
+    comms.mav.registerCallback(EVENTS.CONFIG_OPTIONS, cb_)
 
     scope = opt_scope[0]
     options: Dict[str, Any] = {}
@@ -136,11 +185,11 @@ def test_options(comms: CommsPair, opt_scope):
     opt = rctOptionsPacket(scope, **options)
     comms.gcs.sendPacket(opt)
 
-    rx = pkt_queue.get(True, timeout=1)
+    rx_ = pkt_queue.get(True, timeout=1)
 
-    assert(rx == opt)
+    assert rx_ == opt
     for key in opt_scope[1]:
-        verify_option_key(opt, rx, key)
+        verify_option_key(opt, rx_, key)
 
 def verify_option_key(opt: Union[rctOptionsPacket, rctSETOPTCommand], rx: Union[rctOptionsPacket, rctSETOPTCommand], key: str):
     assert(key in rx.options)
@@ -274,12 +323,12 @@ def test_pingPacket(comms: CommsPair):
     comms.mav.sendToGCS(pkt)
 
     rx = pkt_queue.get(True, timeout=1)
-    assert(rx == pkt)
-    assert(abs(rx.lat - params['lat']) < 1e-7)
-    assert(abs(rx.lon - params['lon']) < 1e-7)
-    assert(abs(rx.alt - params['alt']) < 1e-1)
-    assert(abs(rx.txp - params['txp']) < 1e-6)
-    assert(rx.txf == params['txf'])
+    assert rx == pkt
+    assert abs(rx.lat - params['lat']) < 1e-7
+    assert abs(rx.lon - params['lon']) < 1e-7
+    assert abs(rx.alt - params['alt']) < 1e-1
+    assert abs(rx.txp - params['txp']) < 1e-6
+    assert rx.txf == params['txf']
 
 def test_cmdAck(comms: CommsPair):
     seed(0)
@@ -296,15 +345,15 @@ def test_cmdAck(comms: CommsPair):
     }
 
     pkt = rctACKCommand(**params)
-    assert(pkt.commandID == params['commandID'])
-    assert(pkt.ack == params['ack'])
+    assert pkt.commandID == params['commandID']
+    assert pkt.ack == params['ack']
 
     comms.mav.sendToGCS(pkt)
 
     rx = pkt_queue.get(True, timeout=1)
-    assert(rx == pkt)
-    assert(rx.commandID == params['commandID'])
-    assert(rx.ack == params['ack'])
+    assert rx == pkt
+    assert rx.commandID == params['commandID']
+    assert rx.ack == params['ack']
 
 def test_getFCmd(comms: CommsPair):
     seed(0)
@@ -323,7 +372,7 @@ def test_getFCmd(comms: CommsPair):
     comms.gcs.sendPacket(pkt)
 
     rx = pkt_queue.get(True, timeout=1)
-    assert(rx == pkt)
+    assert rx == pkt
 
 def test_setFCmd(comms: CommsPair):
     seed(0)
@@ -339,13 +388,13 @@ def test_setFCmd(comms: CommsPair):
     }
 
     pkt = rctSETFCommand(**params)
-    assert(pkt.frequencies == params['frequencies'])
+    assert pkt.frequencies == params['frequencies']
 
     comms.gcs.sendPacket(pkt)
 
     rx = pkt_queue.get(True, timeout=1)
-    assert(rx == pkt)
-    assert(rx.frequencies == params['frequencies'])
+    assert rx == pkt
+    assert rx.frequencies == params['frequencies']
 
 def test_getOptCmd(comms: CommsPair):
     seed(0)
@@ -361,18 +410,18 @@ def test_getOptCmd(comms: CommsPair):
     }
 
     pkt = rctGETOPTCommand(**params)
-    assert(pkt.scope == params['scope'])
+    assert pkt.scope == params['scope']
 
     comms.gcs.sendPacket(pkt)
 
     rx = pkt_queue.get(True, timeout=1)
-    assert(rx == pkt)
-    assert(rx.scope == params['scope'])
+    assert rx == pkt
+    assert rx.scope == params['scope']
 
-@pytest.mark.parametrize('opt_scope', 
+@pytest.mark.parametrize('opt_scope',
     [
-        (OPTIONS_SCOPE.BASE_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords), 
-        (OPTIONS_SCOPE.EXP_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords + OPTIONS_SCOPE._expOptionKeywords), 
+        (OPTIONS_SCOPE.BASE_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords),
+        (OPTIONS_SCOPE.EXP_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords + OPTIONS_SCOPE._expOptionKeywords),
         (OPTIONS_SCOPE.ENG_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords + OPTIONS_SCOPE._expOptionKeywords + OPTIONS_SCOPE._engOptionKeywords)
     ])
 def test_setOptCmd(comms: CommsPair, opt_scope):
@@ -393,7 +442,7 @@ def test_setOptCmd(comms: CommsPair, opt_scope):
 
     rx = pkt_queue.get(True, timeout=1)
 
-    assert(rx == opt)
+    assert rx == opt
     for key in opt_scope[1]:
         verify_option_key(opt, rx, key)
 
@@ -414,7 +463,7 @@ def test_startCmd(comms: CommsPair):
     comms.gcs.sendPacket(pkt)
 
     rx = pkt_queue.get(True, timeout=1)
-    assert(rx == pkt)
+    assert rx == pkt
 
 def test_stopCmd(comms: CommsPair):
     seed(0)
@@ -433,7 +482,7 @@ def test_stopCmd(comms: CommsPair):
     comms.gcs.sendPacket(pkt)
 
     rx = pkt_queue.get(True, timeout=1)
-    assert(rx == pkt)
+    assert rx == pkt
 
 def test_upgradeCmd(comms: CommsPair):
     seed(0)
@@ -452,4 +501,4 @@ def test_upgradeCmd(comms: CommsPair):
     comms.gcs.sendPacket(pkt)
 
     rx = pkt_queue.get(True, timeout=1)
-    assert(rx == pkt)
+    assert rx == pkt
