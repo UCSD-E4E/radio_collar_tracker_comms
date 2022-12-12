@@ -127,13 +127,10 @@ class RCTUDPClient(RCTAbstractTransport):
         self.__socket.bind(("", self.__port))
 
     def close(self):
-        if self.__socket is None:
-            raise RuntimeError()
         try:
             self.__socket.close()
-        except:
-            pass
-        self.__socket = None
+        finally:
+            self.__socket = None
 
     def receive(self, bufLen: int, timeout: int=None):
         if self.__socket is None:
@@ -275,12 +272,10 @@ class RCTTCPServer(RCTAbstractTransport):
         self.__conn, self.__addr = self.__socket.accept()
 
     def close(self):
-        if self.__socket is None:
-            raise RuntimeError()
-        if self.__socket is None:
-            raise RuntimeError()
         try:
             self.__socket.close()
+        except:
+            pass
         finally:
             self.__socket = None
 
