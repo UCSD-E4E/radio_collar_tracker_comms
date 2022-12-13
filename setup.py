@@ -10,7 +10,7 @@ setup(
     author='UC San Diego - Engineers for Exploration',
     author_email='e4e@eng.ucsd.edu',
     packages=find_packages(),
-    installed_requires=[],
+    install_requires=[],
     extras_require={
         'dev': [
             'pytest',
