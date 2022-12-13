@@ -22,7 +22,7 @@ jobs:
         python -m pip install .
     - name: Test
       run: |
-        pytest tests/
+        python -m pytest tests/
     - name: Build
       run: |
         python setup.py bdist_wheel
