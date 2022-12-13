@@ -51,6 +51,7 @@ def transportPair(request):
         pass
 
 
+@pytest.mark.timeout(10)
 @pytest.mark.parametrize('transportPair', ['tcp', 'udp'], indirect=True)
 def test_open(transportPair: TransportPair):
 
@@ -60,6 +61,7 @@ def test_open(transportPair: TransportPair):
     assert(client.isOpen())
     assert(server.isOpen())
 
+@pytest.mark.timeout(10)
 @pytest.mark.parametrize('transportPair', ['tcp'], indirect=True)
 def test_data(transportPair: TransportPair):
     def rx_thread(server: RCTAbstractTransport, stopEvent: threading.Event, data_queue: queue.Queue):

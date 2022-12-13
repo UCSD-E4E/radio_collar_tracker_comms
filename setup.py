@@ -15,6 +15,7 @@ setup(
         'dev': [
             'pytest',
             'pylint',
+            'pytest-timeout',
         ]
     },
 )
