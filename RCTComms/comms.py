@@ -114,7 +114,7 @@ class OPTIONS_SCOPE:
     '''
     Options Packet Values
     '''
-    
+
     ## Base Options
     BASE_OPTIONS = 0x00
     _baseOptionKeywords = ['SDR_centerFreq', 'SDR_samplingFreq', 'SDR_gain']
@@ -455,9 +455,9 @@ class rctUpgradeStatusPacket(rctBinaryPacket):
         _, state, strlen = struct.unpack('<BBH', payload[0x0000: 0x0004])
         msg = payload[0x0004:0x0004 + strlen].decode()
         return rctUpgradeStatusPacket(state, msg)
-    
+
 class rctUpgradePacket(rctBinaryPacket):
-    
+
     def __init__(self, numPacket, numTotal, fileBytes):
         self._pclass = 0x03
         self._pid = 0x02
@@ -465,11 +465,11 @@ class rctUpgradePacket(rctBinaryPacket):
         self.numTotal = numTotal
         self.fileBytes = fileBytes
         self._payload = struct.pack('<BHHH', 0x01, numPacket, numTotal, len(fileBytes)) + fileBytes
-    
+
     @classmethod
     def matches(cls, packetClass: int, packetID: int):
         return packetClass == 0x03 and packetID == 0x02
-    
+
     @classmethod
     def from_bytes(cls, packet: bytes):
         header = packet[0:6]
@@ -933,11 +933,13 @@ class gcsComms:
         Receiver thread
         '''
         self.__log.info('RCT gcsComms rxThread started')
-        assert(self.__lastHeartbeat is not None)
+        assert self.__lastHeartbeat is not None
 
         while self.HS_run:
             try:
-                data, addr = self.sock.receive(self.__BUFFER_LEN, 1)
+                data, addr = self.sock.receive(bufLen=self.__BUFFER_LEN, timeout=1)
+                if len(data) == 0:
+                    continue
                 self.__log.info("Received: %s" % data.hex())
                 packets = self.__parser.parseBytes(data)
                 for packet in packets:
@@ -987,7 +989,7 @@ class gcsComms:
                 for callback in self.__packetMap[EVENTS.GENERAL_EXCEPTION.value]:
                     callback(packet=packet, addr=self.__mavIP)
         self.HS_run = True
-        self.__receiverThread = threading.Thread(target=self.__receiverLoop)
+        self.__receiverThread = threading.Thread(target=self.__receiverLoop, name='gcsComms rx')
         self.__receiverThread.start()
         self.__log.info('RCT gcsComms started')
 
@@ -1033,7 +1035,7 @@ class gcsComms:
         :param packet: Packet to send
         :type packet: dictionary
         '''
-        assert(isinstance(payload, bytes))
+        assert isinstance(payload, bytes)
         payloadLen = len(payload)
         header = struct.pack('<BBBBH', 0xE4, 0xEb,
                              packetClass, packetID, payloadLen)
@@ -1069,23 +1071,26 @@ class mavComms:
         }
 
         self.__parser = rctBinaryPacketFactory()
-        
+
+        self.port_open_event = threading.Event()
+
     def isOpen(self):
         return self.__port.isOpen()
 
     def start(self):
         self.__log.info('RCT mavComms starting...')
         self.HS_run = True
-        self.__port.open()
-        self.__rxThread = threading.Thread(target=self.__receiver)
+        self.__rxThread = threading.Thread(target=self.__receiver, name='mavComms_receiver', daemon=True)
         self.__rxThread.start()
 
     def stop(self):
         self.__log.info('HS_run set to False')
         self.HS_run = False
+        self.__port.close()
+        self.port_open_event.set()
+        self.port_open_event.clear()
         if self.__rxThread is not None:
             self.__rxThread.join(timeout=1)
-        self.__port.close()
         self.__log.info('RCT mavComms stopped')
 
     def sendToGCS(self, packet: rctBinaryPacket):
@@ -1095,6 +1100,7 @@ class mavComms:
         self.sendPacket(packet, None)
 
     def sendPacket(self, packet: rctBinaryPacket, dest: Optional[str]):
+        self.port_open_event.wait()
         self.__log.info('Send: %s' % (packet))
         self.__port.send(packet.to_bytes(), dest)
 
@@ -1109,6 +1115,9 @@ class mavComms:
         self.sendToAll(packet)
 
     def __receiver(self):
+        if not self.__port.isOpen():
+            self.__port.open()
+        self.port_open_event.set()
         while self.HS_run is True:
             try:
                 data, addr = self.__port.receive(1024, 1)
