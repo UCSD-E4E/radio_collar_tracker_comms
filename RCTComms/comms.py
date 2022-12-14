@@ -1066,8 +1066,7 @@ class mavComms:
         self.HS_run = False
         self.gcsAddr: Optional[str] = None
         self.__packetMap: Dict[int, List[Callable]] = {
-            EVENTS.GENERAL_EXCEPTION.value: [],
-            EVENTS.GENERAL_UNKNOWN.value: [],
+            evt.value: [] for evt in EVENTS
         }
 
         self.__parser = rctBinaryPacketFactory()
@@ -1127,11 +1126,15 @@ class mavComms:
                     print("RX: %s" % packet)
                     packetCode = packet.getClassIDCode()
                     try:
-                        for callback in self.__packetMap[packetCode]:
-                            callback(packet=packet, addr=addr)
+                        self.execute_cb(packetCode, {
+                            'packet': packet,
+                            'addr': addr
+                        })
                     except KeyError:
-                        for callback in self.__packetMap[EVENTS.GENERAL_UNKNOWN.value]:
-                            callback(packet=packet, addr=addr)
+                        self.execute_cb(EVENTS.GENERAL_UNKNOWN.value, {
+                            'packet': packet,
+                            'addr': addr
+                        })
             except TimeoutError:
                 continue
             except Exception as e:
@@ -1141,8 +1144,9 @@ class mavComms:
                 self.__log.error("Traceback: %s" % (traceback.format_exc()))
                 continue
 
+    def execute_cb(self, event_value: int, kwargs):
+        for cb_ in self.__packetMap[event_value]:
+            cb_(**kwargs)
+
     def registerCallback(self, event: EVENTS, callback):
-        if event.value in self.__packetMap:
-            self.__packetMap[event.value].append(callback)
-        else:
-            self.__packetMap[event.value] = [callback]
+        self.__packetMap[event.value].append(callback)
