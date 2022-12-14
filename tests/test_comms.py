@@ -83,6 +83,7 @@ def create_comms() -> CommsPair:
     gcs.stop()
 
 
+@pytest.mark.timeout(10)
 def test_heartbeat(comms: CommsPair):
     """Tests heartbeats
 
@@ -113,6 +114,7 @@ def test_heartbeat(comms: CommsPair):
         assert rx_.switchState == heartbeat.switchState
         assert abs((rx_.timestamp - heartbeat.timestamp).total_seconds()) < 1e-3
 
+@pytest.mark.timeout(10)
 def test_exception(comms: CommsPair):
     """Tests exceptions
 
@@ -132,6 +134,7 @@ def test_exception(comms: CommsPair):
     assert rx_.exception == exc.exception
     assert rx_.traceback == exc.traceback
 
+@pytest.mark.timeout(10)
 @pytest.mark.parametrize('n_freqs', [1, 2, 4, 8])
 def test_frequencies(comms: CommsPair, n_freqs: int):
     """Tests sending frequencies
@@ -153,6 +156,7 @@ def test_frequencies(comms: CommsPair, n_freqs: int):
     assert rx_ == freqs
     assert rx_.frequencies == freqs.frequencies
 
+@pytest.mark.timeout(10)
 @pytest.mark.parametrize('opt_scope',
     [
          # pylint: disable=protected-access
@@ -217,6 +221,7 @@ def populate_params(options: Dict[str, Any], params: List[str]):
         else:
             raise NotImplementedError(kw_param.fmt)
 
+@pytest.mark.timeout(10)
 def test_upgradeStatusPacket(comms: CommsPair):
     seed(0)
     pkt_queue: queue.Queue[rctUpgradeStatusPacket] = queue.Queue()
@@ -243,6 +248,7 @@ def test_upgradeStatusPacket(comms: CommsPair):
         assert(rx.state == states[i])
         assert(rx.msg == msg[i])
 
+@pytest.mark.timeout(10)
 def test_upgradePacket(comms: CommsPair):
     seed(0)
     
@@ -265,6 +271,7 @@ def test_upgradePacket(comms: CommsPair):
     assert(rx.numTotal == total_packets)
     assert(rx.fileBytes == img)
 
+@pytest.mark.timeout(10)
 def test_vehicle(comms: CommsPair):
     seed(0)
 
@@ -296,6 +303,7 @@ def test_vehicle(comms: CommsPair):
     assert(abs(rx.alt - params['alt']) < 1e-1)
     assert(abs(rx.hdg - params['hdg']) < 0.5)
 
+@pytest.mark.timeout(10)
 def test_pingPacket(comms: CommsPair):
     seed(0)
 
@@ -330,6 +338,7 @@ def test_pingPacket(comms: CommsPair):
     assert abs(rx.txp - params['txp']) < 1e-6
     assert rx.txf == params['txf']
 
+@pytest.mark.timeout(10)
 def test_cmdAck(comms: CommsPair):
     seed(0)
 
@@ -355,6 +364,7 @@ def test_cmdAck(comms: CommsPair):
     assert rx.commandID == params['commandID']
     assert rx.ack == params['ack']
 
+@pytest.mark.timeout(10)
 def test_getFCmd(comms: CommsPair):
     seed(0)
 
@@ -374,6 +384,7 @@ def test_getFCmd(comms: CommsPair):
     rx = pkt_queue.get(True, timeout=1)
     assert rx == pkt
 
+@pytest.mark.timeout(10)
 def test_setFCmd(comms: CommsPair):
     seed(0)
 
@@ -396,6 +407,7 @@ def test_setFCmd(comms: CommsPair):
     assert rx == pkt
     assert rx.frequencies == params['frequencies']
 
+@pytest.mark.timeout(10)
 def test_getOptCmd(comms: CommsPair):
     seed(0)
 
@@ -418,6 +430,7 @@ def test_getOptCmd(comms: CommsPair):
     assert rx == pkt
     assert rx.scope == params['scope']
 
+@pytest.mark.timeout(10)
 @pytest.mark.parametrize('opt_scope',
     [
         (OPTIONS_SCOPE.BASE_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords),
@@ -446,6 +459,7 @@ def test_setOptCmd(comms: CommsPair, opt_scope):
     for key in opt_scope[1]:
         verify_option_key(opt, rx, key)
 
+@pytest.mark.timeout(10)
 def test_startCmd(comms: CommsPair):
     seed(0)
 
@@ -465,6 +479,7 @@ def test_startCmd(comms: CommsPair):
     rx = pkt_queue.get(True, timeout=1)
     assert rx == pkt
 
+@pytest.mark.timeout(10)
 def test_stopCmd(comms: CommsPair):
     seed(0)
 
@@ -484,6 +499,7 @@ def test_stopCmd(comms: CommsPair):
     rx = pkt_queue.get(True, timeout=1)
     assert rx == pkt
 
+@pytest.mark.timeout(10)
 def test_upgradeCmd(comms: CommsPair):
     seed(0)
 
