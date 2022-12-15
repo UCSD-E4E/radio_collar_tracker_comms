@@ -943,6 +943,14 @@ class gcsComms:
 
         self.__parser = rctBinaryPacketFactory()
 
+    def set_disconnect(self, cb_: Callable[[], None]):
+        """Sets the disconnect behavior
+
+        Args:
+            cb_ (Callable[[], None]): Sets the disconnect behavior
+        """
+        self.__disconnected = cb_
+
     def __waitForHeartbeat(self, guiTick: Callable=None, timeout: int=None):
         '''
         Waits to receive a heartbeat packet.  Returns a tuple containing the
