@@ -46,6 +46,7 @@ import enum
 import logging
 import struct
 import threading
+import time
 import traceback
 from dataclasses import dataclass
 from typing import (Any, Callable, Dict, Iterable, List, Optional, Tuple, Type,
@@ -1116,7 +1117,14 @@ class mavComms:
 
     def __receiver(self):
         if not self.__port.isOpen():
-            self.__port.open()
+            error_time = 1
+            while True:
+                try:
+                    self.__port.open()
+                except Exception as exc:
+                    self.__log.critical('Failed to open port: %s', exc, exc_info=1)
+                    time.sleep(error_time)
+                    error_time *= 2
         self.port_open_event.set()
         while self.HS_run is True:
             try:
