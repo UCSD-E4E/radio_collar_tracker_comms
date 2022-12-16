@@ -1,8 +1,9 @@
 from setuptools import setup, find_packages
-import RCTComms
+from RCTComms import __version__
 
 setup(
     name='RCTComms',
+    version=__version__,
     description='Radio Collar Tracker Comms Library',
     author='UC San Diego - Engineers for Exploration',
     author_email='e4e@eng.ucsd.edu',
