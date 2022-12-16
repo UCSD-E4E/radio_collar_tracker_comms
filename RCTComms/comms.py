@@ -1129,7 +1129,20 @@ class mavComms:
             try:
                 data, addr = self.__port.receive(1024, 1)
                 self.__log.info('Received: %s' % data.hex())
+            except TimeoutError:
+                continue
+            except Exception as exc:
+                self.sendException(str(exc), traceback.format_exc())
+                self.__log.exception('Failed to receive packet: %s', exc)
+                continue
+
+            try:
                 packets = self.__parser.parseBytes(data)
+            except Exception as exc:
+                self.sendException(str(exc), traceback=traceback.format_exc())
+                self.__log.exception('Failed to parse packets: %s', exc)
+
+            try:
                 for packet in packets:
                     print("RX: %s" % packet)
                     packetCode = packet.getClassIDCode()
@@ -1143,14 +1156,9 @@ class mavComms:
                             'packet': packet,
                             'addr': addr
                         })
-            except TimeoutError:
-                continue
-            except Exception as e:
-                self.sendException(str(e), traceback.format_exc())
-                self.__log.error("Exception %s: %s" %
-                                 (type(e), str(e)))
-                self.__log.error("Traceback: %s" % (traceback.format_exc()))
-                continue
+            except Exception as exc:
+                self.sendException(str(exc), traceback=traceback.format_exc())
+                self.__log.exception('Failed to handle packets: %s', exc)
 
     def execute_cb(self, event_value: int, kwargs):
         for cb_ in self.__packetMap[event_value]:
