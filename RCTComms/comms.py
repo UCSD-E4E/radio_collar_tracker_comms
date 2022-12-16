@@ -1124,6 +1124,7 @@ class mavComms:
                 self.__log.critical('Failed to open port: %s', exc, exc_info=1)
                 time.sleep(error_time)
                 error_time = min(2 * error_time, 10)
+        self.__log.info('Port open')
         self.port_open_event.set()
         while self.HS_run is True:
             try:
