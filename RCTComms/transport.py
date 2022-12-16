@@ -36,8 +36,8 @@ import os
 import select
 import socket
 from typing import Optional, Tuple
-
-
+import logging
+import time
 class RCTAbstractTransport(abc.ABC):
     '''
     Abstract transport class - all transport types should inherit from this 
@@ -260,16 +260,27 @@ class RCTTCPClient(RCTAbstractTransport):
 
 class RCTTCPServer(RCTAbstractTransport):
     def __init__(self, port: int):
+        self.__log = logging.getLogger('RCT TCP Server')
         self.__port = port
         self.__socket: Optional[socket.socket] = None
         self.__conn: Optional[socket.socket] = None
         self.__addr: Optional[Tuple[str, int]] = None
 
     def open(self):
-        self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.__socket.bind(('', self.__port))
-        self.__socket.listen()
+        error_time = 1
+        while self.__socket is None:
+            try:
+                self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.__socket.bind(('', self.__port))
+                self.__socket.listen()
+            except Exception as exc: # pylint: disable=broad-except
+                self.__socket = None
+                self.__log.exception('Failed to open port: %s', exc)
+                time.sleep(error_time)
+                error_time = min(2 * error_time, 10)
+        self.__log.info('Port is listening')
         self.__conn, self.__addr = self.__socket.accept()
+        self.__log.info('Port is connected')
 
     def close(self):
         try:

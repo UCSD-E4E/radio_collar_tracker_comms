@@ -1116,15 +1116,8 @@ class mavComms:
         self.sendToAll(packet)
 
     def __receiver(self):
-        error_time = 1
-        while not self.__port.isOpen():
-            try:
-                self.__port.open()
-            except Exception as exc:
-                self.__log.critical('Failed to open port: %s', exc, exc_info=1)
-                time.sleep(error_time)
-                error_time = min(2 * error_time, 10)
-        self.__log.info('Port open')
+        if not self.__port.isOpen():
+            self.__port.open()
         self.port_open_event.set()
         while self.HS_run is True:
             try:
