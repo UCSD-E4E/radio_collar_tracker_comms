@@ -44,7 +44,8 @@ import types
 import socket
 import threading
 from typing import Callable, Optional, Tuple
-
+import logging
+import time
 
 class RCTAbstractTransport(abc.ABC):
     '''
@@ -135,13 +136,10 @@ class RCTUDPClient(RCTAbstractTransport):
         self.__socket.bind(("", self.__port))
 
     def close(self):
-        if self.__socket is None:
-            raise RuntimeError()
         try:
             self.__socket.close()
-        except:
-            pass
-        self.__socket = None
+        finally:
+            self.__socket = None
 
     def receive(self, bufLen: int, timeout: int=None):
         if self.__socket is None:
@@ -275,6 +273,7 @@ class RCTTCPServer:
         '''
         Creates an RCTTCPServer object to be bound to the specified port.
         '''
+        self.__log = logging.getLogger('RCT TCP Server')
         self.__port = port
         self.__socket: Optional[socket.socket] = None
         self.__generatorThread: Optional[threading.Thread] = None
@@ -291,10 +290,20 @@ class RCTTCPServer:
         # Use printed addr in rctconfig
         print ('Server started at {}'.format(socket.gethostbyname(socket.gethostname())))
 
-        self.running = True
-        self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.__socket.bind((self.__hostAdr, self.__port))
-        self.__socket.listen()
+        error_time = 1
+        while self.__socket is None:
+            try:
+                self.running = True
+                self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.__socket.bind((self.__hostAdr, self.__port))
+                self.__log.info('Port is listening')
+                self.__socket.listen()
+            except Exception as exc: # pylint: disable=broad-except
+                self.running = False
+                self.__socket = None
+                self.__log.exception('Failed to open port: %s', exc)
+                time.sleep(error_time)
+                error_time = min(2 * error_time, 10)
         self.__generatorThread = threading.Thread(target=self.generatorLoop)
         self.__generatorThread.start()
 
@@ -307,7 +316,7 @@ class RCTTCPServer:
         while self.running:
             try:
                 clientConn, clientAddr = self.__socket.accept()
-                print('New connection accepted from {}'.format(clientAddr))
+                self.__log.info('New connection accepted from {}'.format(clientAddr))
                 if clientConn is not None and clientAddr is not None:
                     newConnection = RCTTCPConnection(clientAddr, clientConn, self.__connectionIndex)
                     self.__connectionHandler(newConnection, self.__connectionIndex)
@@ -342,11 +351,11 @@ class RCTTCPConnection(RCTAbstractTransport):
         self.running = False
         self.__id = id
         self.__sel = selectors.DefaultSelector()
+        data = types.SimpleNamespace(addr=self.__addr, inb=b"", outb=b"")
+        self.__sel.register(self.__socket, selectors.EVENT_READ, data=data)
 
     def open(self):
         self.running = True
-        data = types.SimpleNamespace(addr=self.__addr, inb=b"", outb=b"")
-        self.__sel.register(self.__socket, selectors.EVENT_READ, data=data)
 
     def close(self):
         if self.__socket is None:
@@ -354,6 +363,8 @@ class RCTTCPConnection(RCTAbstractTransport):
         try:
             self.__sel.unregister(self.__socket)
             self.__socket.close()
+        except:
+            pass
         finally:
             self.__socket = None
             self.__sel = None
@@ -363,7 +374,7 @@ class RCTTCPConnection(RCTAbstractTransport):
             raise RuntimeError()
         if self.__addr is None:
             raise RuntimeError()
-        
+
         events = self.__sel.select(timeout=timeout)
         if len(events) < 1:
             raise TimeoutError()

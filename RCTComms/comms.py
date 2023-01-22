@@ -47,6 +47,7 @@ import enum
 import logging
 import struct
 import threading
+import time
 import traceback
 from dataclasses import dataclass
 from typing import (Any, Callable, Dict, Iterable, List, Optional, Tuple, Type,
@@ -987,7 +988,7 @@ class gcsComms:
         Receiver thread
         '''
         self.__log.info('RCT gcsComms rxThread started')
-        assert(self.__lastHeartbeat is not None)
+        assert self.__lastHeartbeat is not None
 
         while self.HS_run:
             try:
@@ -1045,7 +1046,7 @@ class gcsComms:
                 for callback in self.__packetMap[EVENTS.GENERAL_EXCEPTION.value]:
                     callback(packet=packet, addr=self.__mavIP)
         self.HS_run = True
-        self.__receiverThread = threading.Thread(target=self.__receiverLoop)
+        self.__receiverThread = threading.Thread(target=self.__receiverLoop, name='gcsComms rx')
         self.__receiverThread.start()
         self.__log.info('RCT gcsComms started')
 
@@ -1082,12 +1083,12 @@ class gcsComms:
             self.__packetMap[event.value].append(callback)
         else:
             self.__packetMap[event.value] = [callback]
-            
+
     def synchronizedCallback(self, callback):
         def lockAndCall(packet: rctBinaryPacket, addr: str):
             with gcsComms.__lock:
-                callback(packet, addr) 
-        return lockAndCall               
+                callback(packet, addr)
+        return lockAndCall
 
     def unregisterCallback(self, event: EVENTS, callback):
         self.__packetMap[event.value].remove(callback)
@@ -1098,7 +1099,7 @@ class gcsComms:
         :param packet: Packet to send
         :type packet: dictionary
         '''
-        assert(isinstance(payload, bytes))
+        assert isinstance(payload, bytes)
         payloadLen = len(payload)
         header = struct.pack('<BBBBH', 0xE4, 0xEb,
                              packetClass, packetID, payloadLen)
@@ -1113,7 +1114,7 @@ class gcsComms:
         :param packet:
         :type packet:
         '''
- 
+
         self.__log.info("Send: %s" % (packet))
         self.sock.send(packet.to_bytes())
 
@@ -1129,11 +1130,12 @@ class mavComms:
         self.HS_run = False
         self.gcsAddr: Optional[str] = None
         self.__packetMap: Dict[int, List[Callable]] = {
-            EVENTS.GENERAL_EXCEPTION.value: [],
-            EVENTS.GENERAL_UNKNOWN.value: [],
+            evt.value: [] for evt in EVENTS
         }
 
         self.__parser = rctBinaryPacketFactory()
+
+        self.port_open_event = threading.Event()
 
     def isOpen(self):
         return self.__port.isOpen()
@@ -1141,16 +1143,17 @@ class mavComms:
     def start(self):
         self.__log.info('RCT mavComms starting...')
         self.HS_run = True
-        self.__port.open()
-        self.__rxThread = threading.Thread(target=self.__receiver)
+        self.__rxThread = threading.Thread(target=self.__receiver, name='mavComms_receiver', daemon=True)
         self.__rxThread.start()
 
     def stop(self):
         self.__log.info('HS_run set to False')
         self.HS_run = False
+        self.__port.close()
+        self.port_open_event.set()
+        self.port_open_event.clear()
         if self.__rxThread is not None:
             self.__rxThread.join(timeout=1)
-        self.__port.close()
         self.__log.info('RCT mavComms stopped')
 
     def sendToGCS(self, packet: rctBinaryPacket):
@@ -1160,8 +1163,9 @@ class mavComms:
         self.sendPacket(packet, None)
 
     def sendPacket(self, packet: rctBinaryPacket, dest: Optional[str]):
+        if not self.port_open_event.is_set():
+            return
         self.__log.info('Send: %s' % (packet))
-        print("TX: %s" % packet)
         self.__port.send(packet.to_bytes(), dest)
 
     def sendPing(self, ping: rctPingPacket):
@@ -1169,7 +1173,7 @@ class mavComms:
 
     def sendCone(self, cone: rctConePacket):
         self.sendPacket(cone, None)
-        
+
     def sendVehicle(self, vehicle: rctVehiclePacket):
         self.sendPacket(vehicle, None)
 
@@ -1178,28 +1182,47 @@ class mavComms:
         self.sendToAll(packet)
 
     def __receiver(self):
+        if not self.__port.isOpen():
+            self.__port.open()
+        self.port_open_event.set()
         while self.HS_run is True:
             try:
                 data, addr = self.__port.receive(1024, 1)
                 self.__log.info('Received: %s' % data.hex())
+            except TimeoutError:
+                continue
+            except Exception as exc:
+                self.sendException(str(exc), traceback.format_exc())
+                self.__log.exception('Failed to receive packet: %s', exc)
+                continue
+
+            try:
                 packets = self.__parser.parseBytes(data)
+            except Exception as exc:
+                self.sendException(str(exc), traceback=traceback.format_exc())
+                self.__log.exception('Failed to parse packets: %s', exc)
+
+            try:
                 for packet in packets:
                     print("RX: %s" % packet)
                     packetCode = packet.getClassIDCode()
                     try:
-                        for callback in self.__packetMap[packetCode]:
-                            callback(packet=packet, addr=addr)
+                        self.execute_cb(packetCode, {
+                            'packet': packet,
+                            'addr': addr
+                        })
                     except KeyError:
-                        for callback in self.__packetMap[EVENTS.GENERAL_UNKNOWN.value]:
-                            callback(packet=packet, addr=addr)
-            except TimeoutError:
-                continue
-            except Exception as e:
-                self.sendException(str(e), traceback.format_exc())
-                self.__log.error("Exception %s: %s" %
-                                 (type(e), str(e)))
-                self.__log.error("Traceback: %s" % (traceback.format_exc()))
-                continue
+                        self.execute_cb(EVENTS.GENERAL_UNKNOWN.value, {
+                            'packet': packet,
+                            'addr': addr
+                        })
+            except Exception as exc:
+                self.sendException(str(exc), traceback=traceback.format_exc())
+                self.__log.exception('Failed to handle packets: %s', exc)
+
+    def execute_cb(self, event_value: int, kwargs):
+        for cb_ in self.__packetMap[event_value]:
+            cb_(**kwargs)
 
     def registerCallback(self, event: EVENTS, callback):
         if event.value in self.__packetMap:
