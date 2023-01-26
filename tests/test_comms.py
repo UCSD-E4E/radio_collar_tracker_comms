@@ -36,14 +36,16 @@ def start_gcs(gcs: gcsComms):
     """
     gcs.start()
 
-def start_mav(mav: mavComms):
+def start_mav(mav: mavComms, run: threading.Event):
     """MAV Start Logics
 
     Args:
         mav (mavComms): MAV Ovject
     """
     mav.start()
-    mav.sendToGCS(rctHeartBeatPacket(0, 0, 0, 0, 0))
+    while run.is_set():
+        mav.sendToGCS(rctHeartBeatPacket(0, 0, 0, 0, 0))
+        time.sleep(1)
 
 @pytest.fixture(name='comms')
 def create_comms() -> CommsPair:
@@ -67,18 +69,19 @@ def create_comms() -> CommsPair:
     gcs = gcsComms(server)
     mav = mavComms(client)
 
+    mav_run = threading.Event()
+    mav_run.set()
+
     gcs_start = threading.Thread(target=start_gcs, args=(gcs,), name='gcs_start')
-    mav_start = threading.Thread(target=start_mav, args=(mav,), name='mav_start')
+    mav_start = threading.Thread(target=start_mav, args=(mav, mav_run), name='mav_start')
     gcs_start.start()
     time.sleep(0.5)
     mav_start.start()
-    mav_start.join(timeout=1)
     gcs_start.join(timeout=1)
-    if mav_start.is_alive() or gcs_start.is_alive():
-        raise TimeoutError()
 
     yield CommsPair(gcs, mav)
-
+    mav_run.clear()
+    mav_start.join(timeout=2)
     mav.stop()
     gcs.stop()
 
