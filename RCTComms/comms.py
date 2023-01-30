@@ -814,7 +814,7 @@ class EVENTS(enum.Enum):
     UPGRADE_DATA = 0x0302
     DATA_PING = 0x0401
     DATA_VEHICLE = 0x0402
-    DATA_CONE = 0x0404 # TODO: What value should DATA_CONE actually have? I just guessed.
+    DATA_CONE = 0x0404
     COMMAND_ACK = 0x0501
     COMMAND_GETF = 0x0502
     COMMAND_SETF = 0x0503
@@ -934,11 +934,9 @@ class gcsComms:
         self.__mavIP: Optional[str] = None
         self.__lastHeartbeat: Optional[dt.datetime] = None
         self.__packetMap: Dict[int, List[Callable]] = {
-            EVENTS.STATUS_HEARTBEAT.value: [self.__processHeartbeat],
-            EVENTS.GENERAL_NO_HEARTBEAT.value: [],
-            EVENTS.GENERAL_EXCEPTION.value: [],
-            EVENTS.GENERAL_UNKNOWN.value: [],
+            evt.value: [] for evt in EVENTS
         }
+        self.__packetMap[EVENTS.STATUS_HEARTBEAT.value] = [self.__processHeartbeat]
 
         self.GC_HeartbeatWatchdogTime: int = GC_HeartbeatWatchdogTime
 
@@ -1079,10 +1077,7 @@ class gcsComms:
                 the address of the MAV
         '''
         callback = self.synchronizedCallback(callback)
-        if event.value in self.__packetMap:
-            self.__packetMap[event.value].append(callback)
-        else:
-            self.__packetMap[event.value] = [callback]
+        self.__packetMap[event.value].append(callback)
 
     def synchronizedCallback(self, callback):
         def lockAndCall(packet: rctBinaryPacket, addr: str):
@@ -1149,11 +1144,11 @@ class mavComms:
     def stop(self):
         self.__log.info('HS_run set to False')
         self.HS_run = False
+        if self.__rxThread is not None:
+            self.__rxThread.join(timeout=1)
         self.__port.close()
         self.port_open_event.set()
         self.port_open_event.clear()
-        if self.__rxThread is not None:
-            self.__rxThread.join(timeout=1)
         self.__log.info('RCT mavComms stopped')
 
     def sendToGCS(self, packet: rctBinaryPacket):
@@ -1225,7 +1220,4 @@ class mavComms:
             cb_(**kwargs)
 
     def registerCallback(self, event: EVENTS, callback):
-        if event.value in self.__packetMap:
-            self.__packetMap[event.value].append(callback)
-        else:
-            self.__packetMap[event.value] = [callback]
+        self.__packetMap[event.value].append(callback)

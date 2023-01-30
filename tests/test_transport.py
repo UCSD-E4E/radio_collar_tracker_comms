@@ -20,7 +20,13 @@ class TransportPair:
 
 def transport_open(transport: RCTAbstractTransport):
     transport.open()
-    
+
+def server_connection_handler(connection, id):
+    return
+
+def server_disconnect_handler():
+    return
+
 @pytest.fixture
 def transportPair(request):
 
@@ -28,18 +34,32 @@ def transportPair(request):
         s.bind(('', 0))
         port = s.getsockname()[1]
     if request.param == 'tcp':
-        transport_pair = TransportPair(RCTTCPClient(port, TARGET_IP), RCTTCPServer(port))
+        server = RCTTCPServer(port, server_connection_handler)
+        client = RCTTCPClient(port, TARGET_IP)
+
+        server_open_thread = threading.Thread(target=transport_open, args=(server,))
+        client_open_thread = threading.Thread(target=transport_open, args=(client,))
+        server_open_thread.start()
+        client_open_thread.start()
+        while len(server.simList) < 1:
+            continue
+        client_open_thread.join(timeout=5)
+        server_open_thread.join(timeout=5)
+
+        server_connection = server.simList[0]
+        transport_pair = TransportPair(client, server_connection)
+
     elif request.param == 'udp':
         transport_pair = TransportPair(RCTUDPClient(port), RCTUDPServer(port))
+        server_open_thread = threading.Thread(target=transport_open, args=(transport_pair.server,))
+        client_open_thread = threading.Thread(target=transport_open, args=(transport_pair.client,))
+        server_open_thread.start()
+        client_open_thread.start()
+        client_open_thread.join(timeout=5)
+        server_open_thread.join(timeout=5)
     else:
         raise RuntimeError
 
-    server_open_thread = threading.Thread(target=transport_open, args=(transport_pair.server,))
-    client_open_thread = threading.Thread(target=transport_open, args=(transport_pair.client,))
-    server_open_thread.start()
-    client_open_thread.start()
-    client_open_thread.join(timeout=5)
-    server_open_thread.join(timeout=5)
     if client_open_thread.is_alive() or server_open_thread.is_alive():
         raise TimeoutError()
 

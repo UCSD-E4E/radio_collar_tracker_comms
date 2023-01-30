@@ -253,12 +253,18 @@ class RCTTCPClient(RCTAbstractTransport):
     def receive(self, bufLen: int, timeout: int=None):
         if self.__socket is None:
             raise RuntimeError()
-        ready = select.select([self.__socket], [], [], timeout)
-        if len(ready[0]) == 1:
-            data = self.__socket.recv(bufLen)
-            return data, self.__target[0]
-        else:
-            raise TimeoutError
+        try:
+            ready = select.select([self.__socket], [], [], timeout)
+            if len(ready[0]) == 1:
+                data = self.__socket.recv(bufLen)
+                return data, self.__target[0]
+            else:
+                raise TimeoutError
+        except WindowsError as e:
+            if e.winerror == 10038:
+                break
+            else:
+                raise
 
     def send(self, data: bytes, dest=None):
         if self.__socket is None:
@@ -281,6 +287,7 @@ class RCTTCPServer:
         self.__hostAdr = addr
         self.__connectionHandler = connectionHandler
         self.__connectionIndex = 0
+        self.simList = []
 
     def open(self):
         '''
@@ -321,6 +328,7 @@ class RCTTCPServer:
                     newConnection = RCTTCPConnection(clientAddr, clientConn, self.__connectionIndex)
                     self.__connectionHandler(newConnection, self.__connectionIndex)
                     self.__connectionIndex += 1
+                    self.simList.append(newConnection)
             except ConnectionAbortedError:
                 break
             except WindowsError as e:
@@ -344,6 +352,9 @@ class RCTTCPServer:
             self.__socket = None
             self.__generatorThread = None
 
+    def isOpen(self):
+        return self.__socket is not None
+
 class RCTTCPConnection(RCTAbstractTransport):
     def __init__(self, addr: Tuple[str, int], conn: socket.socket, id: int):
         self.__addr = addr
@@ -366,8 +377,7 @@ class RCTTCPConnection(RCTAbstractTransport):
         except:
             pass
         finally:
-            self.__socket = None
-            self.__sel = None
+            self.running = False
 
     def receive(self, bufLen: int, timeout: int=None):
         if self.__socket is None:
@@ -385,10 +395,7 @@ class RCTTCPConnection(RCTAbstractTransport):
                 if recv_data:
                     return recv_data, self.__addr[0]
                 else:
-                    self.__sel.unregister(key.fileobj)
-                    key.fileobj.close()
-                    self.__socket = None
-                    self.__sel = None
+                    self.close()
 
         return None, self.__addr[0]
 
