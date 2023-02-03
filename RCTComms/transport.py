@@ -262,7 +262,7 @@ class RCTTCPClient(RCTAbstractTransport):
                 raise TimeoutError
         except WindowsError as e:
             if e.winerror == 10038:
-                break
+                pass
             else:
                 raise
 
