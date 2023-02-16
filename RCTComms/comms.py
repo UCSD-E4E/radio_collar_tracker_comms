@@ -118,12 +118,12 @@ class OPTIONS_SCOPE:
 
     ## Base Options
     BASE_OPTIONS = 0x00
-    _baseOptionKeywords = ['SDR_centerFreq', 'SDR_samplingFreq', 'SDR_gain']
+    _baseOptionKeywords = ['SDR_center_freq', 'SDR_sampling_freq', 'SDR_gain']
 
     ## Expert Options
     EXP_OPTIONS = 0x01
-    _expOptionKeywords = ['DSP_pingWidth', 'DSP_pingSNR',
-                          'DSP_pingMax', 'DSP_pingMin', 'SYS_outputDir']
+    _expOptionKeywords = ['DSP_ping_width', 'DSP_ping_snr',
+                          'DSP_ping_max', 'DSP_ping_min', 'SYS_output_dir']
 
     ## Engineering Options
     ENG_OPTIONS = 0xFF
@@ -137,14 +137,14 @@ class OPTIONS_SCOPE:
         length: int
 
     kw_types: Dict[str, KWParams] = {
-        'SDR_centerFreq': KWParams([int], '<L', 4),
-        'SDR_samplingFreq': KWParams([int], '<L', 4),
+        'SDR_center_freq': KWParams([int], '<L', 4),
+        'SDR_sampling_freq': KWParams([int], '<L', 4),
         'SDR_gain': KWParams([int, float], '<f', 4),
-        'DSP_pingWidth': KWParams([int, float], '<f', 4),
-        'DSP_pingSNR': KWParams([int, float], '<f', 4),
-        'DSP_pingMax': KWParams([int, float], '<f', 4),
-        'DSP_pingMin': KWParams([int, float], '<f', 4),
-        'SYS_outputDir': KWParams([str], 's', 2),
+        'DSP_ping_width': KWParams([int, float], '<f', 4),
+        'DSP_ping_snr': KWParams([int, float], '<f', 4),
+        'DSP_ping_max': KWParams([int, float], '<f', 4),
+        'DSP_ping_min': KWParams([int, float], '<f', 4),
+        'SYS_output_dir': KWParams([str], 's', 2),
         'GPS_mode': KWParams([int], '<B', 1),
         'GPS_baud': KWParams([int], '<L', 4),
         'GPS_device': KWParams([str], 's', 2),
@@ -154,14 +154,14 @@ class OPTIONS_SCOPE:
     ## Keyword Types.  The associated tuples are python type, struct pack format
     # character, and number of bytes.
     _keywordTypes: Dict[str, Tuple[Any, str, int]] = {
-        'SDR_centerFreq': (int, '<L', 4),
-        'SDR_samplingFreq': (int, '<L', 4),
+        'SDR_center_freq': (int, '<L', 4),
+        'SDR_sampling_freq': (int, '<L', 4),
         'SDR_gain': ((int, float), '<f', 4),
-        'DSP_pingWidth': ((int, float), '<f', 4),
-        'DSP_pingSNR': ((int, float), '<f', 4),
-        'DSP_pingMax': ((int, float), '<f', 4),
-        'DSP_pingMin': ((int, float), '<f', 4),
-        'SYS_outputDir': (str, 's', 2),
+        'DSP_ping_width': ((int, float), '<f', 4),
+        'DSP_ping_snr': ((int, float), '<f', 4),
+        'DSP_ping_max': ((int, float), '<f', 4),
+        'DSP_ping_min': ((int, float), '<f', 4),
+        'SYS_output_dir': (str, 's', 2),
         'GPS_mode': (int, '<B', 1),
         'GPS_baud': (int, '<L', 4),
         'GPS_device': (str, 's', 2),
