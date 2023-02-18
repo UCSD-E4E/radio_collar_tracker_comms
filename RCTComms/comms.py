@@ -912,7 +912,7 @@ class gcsComms:
     __BUFFER_LEN = 1024
     __lock = threading.Lock()
 
-    def __init__(self, port: RCTComms.transport.RCTAbstractTransport, disconnected: Callable[[], None], GC_HeartbeatWatchdogTime=30):
+    def __init__(self, port: RCTComms.transport.RCTAbstractTransport, disconnected: Optional[Callable[[], None]] = None, GC_HeartbeatWatchdogTime=30):
         '''
         Initializes the UDP interface on the specified port.  Also specifies a
         filename to use as a logfile, which defaults to no log.
@@ -1076,10 +1076,10 @@ class gcsComms:
                 dictionary shall the the packet payload, and the addr shall be
                 the address of the MAV
         '''
-        callback = self.synchronizedCallback(callback)
+        callback = self.__synchronized_callback(callback)
         self.__packetMap[event.value].append(callback)
 
-    def synchronizedCallback(self, callback):
+    def __synchronized_callback(self, callback):
         def lockAndCall(packet: rctBinaryPacket, addr: str):
             with gcsComms.__lock:
                 callback(packet, addr)
@@ -1101,7 +1101,7 @@ class gcsComms:
         msg = header + payload
         cksum = binascii.crc_hqx(msg, 0xFFFF).to_bytes(2, 'big')
         self.__log.info("Send: %s" % ((msg + cksum).hex()))
-        self.sock.send(msg)
+        self.sock.send(msg, self.__mavIP)
 
     def sendPacket(self, packet: rctBinaryPacket):
         '''
@@ -1111,7 +1111,7 @@ class gcsComms:
         '''
 
         self.__log.info("Send: %s" % (packet))
-        self.sock.send(packet.to_bytes())
+        self.sock.send(packet.to_bytes(), self.__mavIP)
 
 
 class mavComms:

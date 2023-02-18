@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 ###############################################################################
 #     Radio Collar Tracker Ground Control Software
 #     Copyright (C) 2020  Nathan Hui
@@ -37,15 +36,15 @@
 ###############################################################################
 
 import abc
+import logging
 import os
 import select
 import selectors
-import types
 import socket
 import threading
-from typing import Callable, Optional, Tuple
-import logging
 import time
+import types
+from typing import Callable, Optional, Tuple
 
 class RCTAbstractTransport(abc.ABC):
     '''
@@ -126,7 +125,7 @@ class RCTAbstractTransport(abc.ABC):
 
 
 class RCTUDPClient(RCTAbstractTransport):
-    def __init__(self, port: int = 9000):
+    def __init__(self, port: int):
         self.__socket: Optional[socket.socket] = None
         self.__port = port
 
@@ -161,7 +160,7 @@ class RCTUDPClient(RCTAbstractTransport):
 
 
 class RCTUDPServer(RCTAbstractTransport):
-    def __init__(self, port: int = 9000):
+    def __init__(self, port: int):
         self.__socket: Optional[socket.socket] = None
         self.__port = port
 
@@ -231,7 +230,7 @@ class RCTPipeClient(RCTAbstractTransport):
         return self.__inFile is not None and self.__outFile is not None
 
 class RCTTCPClient(RCTAbstractTransport):
-    def __init__(self, port: int=9000, addr: str='255.255.255.255'):
+    def __init__(self, port: int, addr: str):
         self.__target = (addr, port)
         self.__socket: Optional[socket.socket] = None
 
@@ -253,20 +252,15 @@ class RCTTCPClient(RCTAbstractTransport):
     def receive(self, bufLen: int, timeout: int=None):
         if self.__socket is None:
             raise RuntimeError()
-        try:
-            ready = select.select([self.__socket], [], [], timeout)
-            if len(ready[0]) == 1:
-                data = self.__socket.recv(bufLen)
-                return data, self.__target[0]
-            else:
-                raise TimeoutError
-        except WindowsError as e:
-            if e.winerror == 10038:
-                pass
-            else:
-                raise
+        ready = select.select([self.__socket], [], [], timeout)
+        if len(ready[0]) == 1:
+            data = self.__socket.recv(bufLen)
+            return data, self.__target[0]
+        else:
+            raise TimeoutError
 
-    def send(self, data: bytes, dest=None):
+    def send(self, data: bytes, dest):
+        # pylint: disable=unused-argument
         if self.__socket is None:
             raise RuntimeError()
         self.__socket.send(data)
@@ -283,10 +277,10 @@ class RCTTCPServer:
         self.__port = port
         self.__socket: Optional[socket.socket] = None
         self.__generatorThread: Optional[threading.Thread] = None
-        self.running = False
+        self.__running: Optional[threading.Event] = None
         self.__hostAdr = addr
-        self.__connectionHandler = connectionHandler
-        self.__connectionIndex = 0
+        self.__connection_handler = connectionHandler
+        self.__connection_index = 0
         self.simList = []
 
     def open(self):
@@ -295,23 +289,28 @@ class RCTTCPServer:
         for new connections.
         '''
         # Use printed addr in rctconfig
-        print ('Server started at {}'.format(socket.gethostbyname(socket.gethostname())))
+        self.__log.info('Server started at {}'.format(
+                        socket.gethostbyname(socket.gethostname())))
 
         error_time = 1
         while self.__socket is None:
             try:
-                self.running = True
-                self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.__running = threading.Event()
+                self.__running.clear()
+                self.__socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+                self.__socket.settimeout(2)
                 self.__socket.bind((self.__hostAdr, self.__port))
                 self.__log.info('Port is listening')
                 self.__socket.listen()
             except Exception as exc: # pylint: disable=broad-except
-                self.running = False
+                self.__running.set()
+                self.__running = None
                 self.__socket = None
                 self.__log.exception('Failed to open port: %s', exc)
                 time.sleep(error_time)
                 error_time = min(2 * error_time, 10)
-        self.__generatorThread = threading.Thread(target=self.generatorLoop)
+        self.__generatorThread = threading.Thread(target=self.generatorLoop,
+                                                daemon=True)
         self.__generatorThread.start()
 
     def generatorLoop(self):
@@ -320,22 +319,19 @@ class RCTTCPServer:
         RCTTCPConnection object is made each time a client connects.
         '''
 
-        while self.running:
+        while not self.__running.is_set():
             try:
                 clientConn, clientAddr = self.__socket.accept()
                 self.__log.info('New connection accepted from {}'.format(clientAddr))
                 if clientConn is not None and clientAddr is not None:
-                    newConnection = RCTTCPConnection(clientAddr, clientConn, self.__connectionIndex)
-                    self.__connectionHandler(newConnection, self.__connectionIndex)
-                    self.__connectionIndex += 1
+                    newConnection = RCTTCPConnection(clientAddr, clientConn, self.__connection_index)
+                    self.__connection_handler(newConnection, self.__connection_index)
+                    self.__connection_index += 1
                     self.simList.append(newConnection)
+            except socket.timeout:
+                pass
             except ConnectionAbortedError:
                 break
-            except WindowsError as e:
-                if e.winerror == 10038:
-                    break
-                else:
-                    raise
 
     def close(self):
         '''
@@ -345,8 +341,8 @@ class RCTTCPServer:
         if self.__socket is None or self.__generatorThread is None:
             raise RuntimeError()
         try:
-            self.running = False
-            self.__generatorThread.join(timeout=1)
+            self.__running.set()
+            self.__generatorThread.join(timeout=2)
             self.__socket.close()
         finally:
             self.__socket = None
@@ -359,14 +355,13 @@ class RCTTCPConnection(RCTAbstractTransport):
     def __init__(self, addr: Tuple[str, int], conn: socket.socket, id: int):
         self.__addr = addr
         self.__socket = conn
-        self.running = False
         self.__id = id
         self.__sel = selectors.DefaultSelector()
         data = types.SimpleNamespace(addr=self.__addr, inb=b"", outb=b"")
         self.__sel.register(self.__socket, selectors.EVENT_READ, data=data)
 
     def open(self):
-        self.running = True
+        return
 
     def close(self):
         if self.__socket is None:
@@ -376,8 +371,6 @@ class RCTTCPConnection(RCTAbstractTransport):
             self.__socket.close()
         except:
             pass
-        finally:
-            self.running = False
 
     def receive(self, bufLen: int, timeout: int=None):
         if self.__socket is None:
@@ -400,7 +393,8 @@ class RCTTCPConnection(RCTAbstractTransport):
         return None, self.__addr[0]
 
 
-    def send(self, data: bytes, dest=None):
+    def send(self, data: bytes, dest):
+        # pylint: disable=unused-argument
         if self.__socket is None:
             raise RuntimeError()
         self.__socket.send(data)
