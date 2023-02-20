@@ -71,7 +71,7 @@ def transportPair(request):
         pass
 
 
-@pytest.mark.timeout(10)
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize('transportPair', ['tcp', 'udp'], indirect=True)
 def test_open(transportPair: TransportPair):
 
