@@ -28,13 +28,13 @@ class CommsPair:
     gcs: gcsComms
     mav: mavComms
 
-def start_gcs(gcs: gcsComms):
+def start_gcs(server: RCTTCPServer):
     """GCS Start Logic
 
     Args:
         gcs (gcsComms): GCS Object
     """
-    gcs.start()
+    server.open()
 
 def start_mav(mav: mavComms, run: threading.Event):
     """MAV Start Logics
@@ -46,6 +46,12 @@ def start_mav(mav: mavComms, run: threading.Event):
     while run.is_set():
         mav.sendToGCS(rctHeartBeatPacket(0, 0, 0, 0, 0))
         time.sleep(1)
+
+def server_connection_handler(connection, id):
+    return
+
+def server_disconnect_handler():
+    return
 
 @pytest.fixture(name='comms')
 def create_comms() -> CommsPair:
@@ -64,26 +70,32 @@ def create_comms() -> CommsPair:
     with socket.socket() as sock:
         sock.bind(('', 0))
         port = sock.getsockname()[1]
-    server = RCTTCPServer(port)
+    server = RCTTCPServer(port, server_connection_handler)
     client = RCTTCPClient(port, addr)
-    gcs = gcsComms(server)
     mav = mavComms(client)
 
     mav_run = threading.Event()
     mav_run.set()
 
-    gcs_start = threading.Thread(target=start_gcs, args=(gcs,), name='gcs_start')
-    mav_start = threading.Thread(target=start_mav, args=(mav, mav_run), name='mav_start')
-    gcs_start.start()
+    server_start = threading.Thread(target=start_gcs, args=(server,), name='gcs_start')
+    mav_start = threading.Thread(target=start_mav, args=(mav,mav_run), name='mav_start')
+
+    server_start.start()
     time.sleep(0.5)
     mav_start.start()
-    gcs_start.join(timeout=1)
+    server_start.join(timeout=1)
+
+    while len(server.simList) < 1:
+        continue
+    gcs = gcsComms(server.simList[0], server_disconnect_handler)
+    gcs.start()
 
     yield CommsPair(gcs, mav)
     mav_run.clear()
     mav_start.join(timeout=2)
     mav.stop()
     gcs.stop()
+    server.close()
 
 
 @pytest.mark.timeout(10)

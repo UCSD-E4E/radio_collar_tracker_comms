@@ -20,6 +20,7 @@
 #
 # DATE      WHO Description
 # -----------------------------------------------------------------------------
+# 03/26/22  HG  Changed GCS to server and drone to client
 # 07/29/20  NH  Added isOpen to mavComms
 # 07/23/20  NH  Initial docstrings
 # 05/23/20  NH  Moved heartbeat watchdog timeout to parameter
@@ -53,7 +54,6 @@ from typing import (Any, Callable, Dict, Iterable, List, Optional, Tuple, Type,
                     Union)
 
 import RCTComms.transport
-
 
 class PACKET_CLASS(enum.Enum):
     '''
@@ -118,12 +118,12 @@ class OPTIONS_SCOPE:
 
     ## Base Options
     BASE_OPTIONS = 0x00
-    _baseOptionKeywords = ['SDR_centerFreq', 'SDR_samplingFreq', 'SDR_gain']
+    _baseOptionKeywords = ['SDR_center_freq', 'SDR_sampling_freq', 'SDR_gain']
 
     ## Expert Options
     EXP_OPTIONS = 0x01
-    _expOptionKeywords = ['DSP_pingWidth', 'DSP_pingSNR',
-                          'DSP_pingMax', 'DSP_pingMin', 'SYS_outputDir']
+    _expOptionKeywords = ['DSP_ping_width', 'DSP_ping_snr',
+                          'DSP_ping_max', 'DSP_ping_min', 'SYS_output_dir']
 
     ## Engineering Options
     ENG_OPTIONS = 0xFF
@@ -137,14 +137,14 @@ class OPTIONS_SCOPE:
         length: int
 
     kw_types: Dict[str, KWParams] = {
-        'SDR_centerFreq': KWParams([int], '<L', 4),
-        'SDR_samplingFreq': KWParams([int], '<L', 4),
+        'SDR_center_freq': KWParams([int], '<L', 4),
+        'SDR_sampling_freq': KWParams([int], '<L', 4),
         'SDR_gain': KWParams([int, float], '<f', 4),
-        'DSP_pingWidth': KWParams([int, float], '<f', 4),
-        'DSP_pingSNR': KWParams([int, float], '<f', 4),
-        'DSP_pingMax': KWParams([int, float], '<f', 4),
-        'DSP_pingMin': KWParams([int, float], '<f', 4),
-        'SYS_outputDir': KWParams([str], 's', 2),
+        'DSP_ping_width': KWParams([int, float], '<f', 4),
+        'DSP_ping_snr': KWParams([int, float], '<f', 4),
+        'DSP_ping_max': KWParams([int, float], '<f', 4),
+        'DSP_ping_min': KWParams([int, float], '<f', 4),
+        'SYS_output_dir': KWParams([str], 's', 2),
         'GPS_mode': KWParams([int], '<B', 1),
         'GPS_baud': KWParams([int], '<L', 4),
         'GPS_device': KWParams([str], 's', 2),
@@ -154,14 +154,14 @@ class OPTIONS_SCOPE:
     ## Keyword Types.  The associated tuples are python type, struct pack format
     # character, and number of bytes.
     _keywordTypes: Dict[str, Tuple[Any, str, int]] = {
-        'SDR_centerFreq': (int, '<L', 4),
-        'SDR_samplingFreq': (int, '<L', 4),
+        'SDR_center_freq': (int, '<L', 4),
+        'SDR_sampling_freq': (int, '<L', 4),
         'SDR_gain': ((int, float), '<f', 4),
-        'DSP_pingWidth': ((int, float), '<f', 4),
-        'DSP_pingSNR': ((int, float), '<f', 4),
-        'DSP_pingMax': ((int, float), '<f', 4),
-        'DSP_pingMin': ((int, float), '<f', 4),
-        'SYS_outputDir': (str, 's', 2),
+        'DSP_ping_width': ((int, float), '<f', 4),
+        'DSP_ping_snr': ((int, float), '<f', 4),
+        'DSP_ping_max': ((int, float), '<f', 4),
+        'DSP_ping_min': ((int, float), '<f', 4),
+        'SYS_output_dir': (str, 's', 2),
         'GPS_mode': (int, '<B', 1),
         'GPS_baud': (int, '<L', 4),
         'GPS_device': (str, 's', 2),
@@ -216,6 +216,42 @@ class rctBinaryPacket:
     @classmethod
     def matches(cls, packetClass: int, packetID: int) -> bool:
         return True
+
+
+class rctPingPacket(rctBinaryPacket):
+    def __init__(self, lat: float, lon: float, alt: float, txp: float, txf: int, timestamp: dt.datetime = None):
+        self.lat = lat
+        self.lon = lon
+        self.alt = alt
+        self.txp = txp
+        self.txf = txf
+        if timestamp is None:
+            timestamp = dt.datetime.now()
+        self.timestamp = timestamp
+
+        self._pclass = 0x04
+        self._pid = 0x01
+        self._payload = struct.pack("<BQllHfL", 0x01, int(timestamp.timestamp(
+        ) * 1e3), int(lat * 1e7), int(lon * 1e7), int(alt * 10), txp, txf)
+
+    @classmethod
+    def matches(cls, packetClass: int, packetID: int):
+        return packetClass == 0x04 and packetID == 0x01
+
+    @classmethod
+    def from_bytes(cls, packet: bytes):
+        header = packet[0:6]
+        payload = packet[6:-2]
+        _, _, pcls, pid, _ = struct.unpack("<BBBBH", header)
+        if not cls.matches(pcls, pid):
+            raise RuntimeError("Incorrect packet type")
+        _, timeMS, lat7, lon7, alt1, txp, txf = struct.unpack(
+            '<BQllHfL', payload)
+        timestamp = dt.datetime.fromtimestamp(timeMS / 1e3)
+        lat = lat7 / 1e7
+        lon = lon7 / 1e7
+        alt = alt1 / 10
+        return rctPingPacket(lat, lon, alt, txp, txf, timestamp)
 
 
 class rctHeartBeatPacket(rctBinaryPacket):
@@ -483,25 +519,27 @@ class rctUpgradePacket(rctBinaryPacket):
         fileBytes = payload[0x0007:0x0007 + bytesLen]
         return rctUpgradePacket(numPacket, numTotal, fileBytes)
 
-class rctPingPacket(rctBinaryPacket):
-    def __init__(self, lat: float, lon: float, alt: float, txp: float, txf: int, timestamp: dt.datetime = None):
+
+class rctConePacket(rctBinaryPacket):
+    def __init__(self, lat: float, lon: float, alt: float, power: float, angle: float, timestamp: dt.datetime = None):
         self.lat = lat
         self.lon = lon
         self.alt = alt
-        self.txp = txp
-        self.txf = txf
+        self.power = power
+        self.angle = angle
         if timestamp is None:
             timestamp = dt.datetime.now()
         self.timestamp = timestamp
 
         self._pclass = 0x04
-        self._pid = 0x01
-        self._payload = struct.pack("<BQllHfL", 0x01, int(timestamp.timestamp(
-        ) * 1e3), int(lat * 1e7), int(lon * 1e7), int(alt * 10), txp, txf)
+        self._pid = 0x04
+        self._payload = struct.pack("<BQllHff", 0x01, int(timestamp.timestamp(
+        ) * 1e3), int(lat * 1e7), int(lon * 1e7), int(alt * 10), power, angle)
+
 
     @classmethod
     def matches(cls, packetClass: int, packetID: int):
-        return packetClass == 0x04 and packetID == 0x01
+        return packetClass == 0x04 and packetID == 0x04
 
     @classmethod
     def from_bytes(cls, packet: bytes):
@@ -510,14 +548,13 @@ class rctPingPacket(rctBinaryPacket):
         _, _, pcls, pid, _ = struct.unpack("<BBBBH", header)
         if not cls.matches(pcls, pid):
             raise RuntimeError("Incorrect packet type")
-        _, timeMS, lat7, lon7, alt1, txp, txf = struct.unpack(
-            '<BQllHfL', payload)
+        _, timeMS, lat7, lon7, alt1, power, angle = struct.unpack(
+            '<BQllHff', payload)
         timestamp = dt.datetime.fromtimestamp(timeMS / 1e3)
         lat = lat7 / 1e7
         lon = lon7 / 1e7
         alt = alt1 / 10
-        return rctPingPacket(lat, lon, alt, txp, txf, timestamp)
-
+        return rctConePacket(lat, lon, alt, power, angle, timestamp)
 
 class rctVehiclePacket(rctBinaryPacket):
     def __init__(self, lat: float, lon: float, alt: float, hdg: int, timestamp: dt.datetime = None):
@@ -777,6 +814,7 @@ class EVENTS(enum.Enum):
     UPGRADE_DATA = 0x0302
     DATA_PING = 0x0401
     DATA_VEHICLE = 0x0402
+    DATA_CONE = 0x0404
     COMMAND_ACK = 0x0501
     COMMAND_GETF = 0x0502
     COMMAND_SETF = 0x0503
@@ -805,6 +843,7 @@ class rctBinaryPacketFactory:
         EVENTS.UPGRADE_STATUS.value: rctUpgradeStatusPacket,
         EVENTS.UPGRADE_DATA.value: rctUpgradePacket,
         EVENTS.DATA_PING.value: rctPingPacket,
+        EVENTS.DATA_CONE.value: rctConePacket,
         EVENTS.DATA_VEHICLE.value: rctVehiclePacket,
         EVENTS.COMMAND_ACK.value: rctACKCommand,
         EVENTS.COMMAND_GETF.value: rctGETFCommand,
@@ -871,8 +910,9 @@ class gcsComms:
     Radio Collar Tracker UDP Interface
     '''
     __BUFFER_LEN = 1024
+    __lock = threading.Lock()
 
-    def __init__(self, port: RCTComms.transport.RCTAbstractTransport, GC_HeartbeatWatchdogTime=30):
+    def __init__(self, port: RCTComms.transport.RCTAbstractTransport, disconnected: Optional[Callable[[], None]] = None, GC_HeartbeatWatchdogTime=30):
         '''
         Initializes the UDP interface on the specified port.  Also specifies a
         filename to use as a logfile, which defaults to no log.
@@ -881,9 +921,12 @@ class gcsComms:
         :type port: rctTransport.RCTAbstractTransport
         :param originString: Origin string
         :type originString: str
+        :param disconnected: callback to inform owner of a disconnected event
+        :type disconnected: Callable[[], None]
         '''
         self.__log = logging.getLogger('rctGCS.gcsComms')
         self.sock = port
+        self.__disconnected = disconnected
 
         self.__receiverThread: Optional[threading.Thread] = None
         self.__log.info('RTC gcsComms created')
@@ -891,15 +934,21 @@ class gcsComms:
         self.__mavIP: Optional[str] = None
         self.__lastHeartbeat: Optional[dt.datetime] = None
         self.__packetMap: Dict[int, List[Callable]] = {
-            EVENTS.STATUS_HEARTBEAT.value: [self.__processHeartbeat],
-            EVENTS.GENERAL_NO_HEARTBEAT.value: [],
-            EVENTS.GENERAL_EXCEPTION.value: [],
-            EVENTS.GENERAL_UNKNOWN.value: [],
+            evt.value: [] for evt in EVENTS
         }
+        self.__packetMap[EVENTS.STATUS_HEARTBEAT.value] = [self.__processHeartbeat]
 
         self.GC_HeartbeatWatchdogTime: int = GC_HeartbeatWatchdogTime
 
         self.__parser = rctBinaryPacketFactory()
+
+    def set_disconnect(self, cb_: Callable[[], None]):
+        """Sets the disconnect behavior
+
+        Args:
+            cb_ (Callable[[], None]): Sets the disconnect behavior
+        """
+        self.__disconnected = cb_
 
     def __waitForHeartbeat(self, guiTick: Callable=None, timeout: int=None):
         '''
@@ -916,6 +965,9 @@ class gcsComms:
         for _ in range(timeout):
             try:
                 data, addr = self.sock.receive(1024, 1)
+                if data is None:
+                    self.__disconnected()
+                    break
                 packets = self.__parser.parseBytes(data)
                 for packet in packets:
                     if isinstance(packet, rctHeartBeatPacket):
@@ -938,10 +990,12 @@ class gcsComms:
 
         while self.HS_run:
             try:
-                data, addr = self.sock.receive(bufLen=self.__BUFFER_LEN, timeout=1)
-                if len(data) == 0:
-                    continue
+                data, addr = self.sock.receive(self.__BUFFER_LEN, 1)
+                if not data:
+                    self.__disconnected()
+                    break
                 self.__log.info("Received: %s" % data.hex())
+
                 packets = self.__parser.parseBytes(data)
                 for packet in packets:
                     packetCode = packet.getClassIDCode()
@@ -1022,10 +1076,14 @@ class gcsComms:
                 dictionary shall the the packet payload, and the addr shall be
                 the address of the MAV
         '''
-        if event.value in self.__packetMap:
-            self.__packetMap[event.value].append(callback)
-        else:
-            self.__packetMap[event.value] = [callback]
+        callback = self.__synchronized_callback(callback)
+        self.__packetMap[event.value].append(callback)
+
+    def __synchronized_callback(self, callback):
+        def lockAndCall(packet: rctBinaryPacket, addr: str):
+            with gcsComms.__lock:
+                callback(packet, addr)
+        return lockAndCall
 
     def unregisterCallback(self, event: EVENTS, callback):
         self.__packetMap[event.value].remove(callback)
@@ -1086,11 +1144,11 @@ class mavComms:
     def stop(self):
         self.__log.info('HS_run set to False')
         self.HS_run = False
+        if self.__rxThread is not None:
+            self.__rxThread.join(timeout=1)
         self.__port.close()
         self.port_open_event.set()
         self.port_open_event.clear()
-        if self.__rxThread is not None:
-            self.__rxThread.join(timeout=1)
         self.__log.info('RCT mavComms stopped')
 
     def sendToGCS(self, packet: rctBinaryPacket):
@@ -1107,6 +1165,9 @@ class mavComms:
 
     def sendPing(self, ping: rctPingPacket):
         self.sendPacket(ping, None)
+
+    def sendCone(self, cone: rctConePacket):
+        self.sendPacket(cone, None)
 
     def sendVehicle(self, vehicle: rctVehiclePacket):
         self.sendPacket(vehicle, None)

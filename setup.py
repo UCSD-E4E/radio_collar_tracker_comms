@@ -16,6 +16,8 @@ setup(
             'pytest',
             'pylint',
             'pytest-timeout',
+            'coverage',
+            'wheel',
         ]
     },
 )
