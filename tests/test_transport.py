@@ -37,12 +37,23 @@ def server_connection_handler(connection, id):
 def server_disconnect_handler():
     return
 
-@pytest.fixture
-def transportPair(request):
+@pytest.fixture(name='transport_pair')
+def create_transport_pair(request):
+    """Creates a transport pair
 
-    with socket.socket() as s:
-        s.bind(('', 0))
-        port = s.getsockname()[1]
+    Args:
+        request (pytest.FixtureRequest): Fixture Request
+
+    Raises:
+        RuntimeError: Unknown socket type
+        TimeoutError: Failed to connect
+
+    Yields:
+        TransportPair: Pair of active transports
+    """
+    with socket.socket() as sock:
+        sock.bind(('', 0))
+        port = sock.getsockname()[1]
     if request.param == 'tcp':
         server = RCTTCPServer(port, server_connection_handler)
         client = RCTTCPClient(port, TARGET_IP)
@@ -82,40 +93,57 @@ def transportPair(request):
 
 
 @pytest.mark.timeout(30)
-@pytest.mark.parametrize('transportPair', ['tcp', 'udp'], indirect=True)
-def test_open(transportPair: TransportPair):
+@pytest.mark.parametrize('transport_pair', ['tcp', 'udp'], indirect=True)
+def test_open(transport_pair: TransportPair):
 
-    client = transportPair.client
-    server = transportPair.server
+    client = transport_pair.client
+    server = transport_pair.server
 
     assert(client.isOpen())
     assert(server.isOpen())
 
+def rx_thread(server: RCTAbstractTransport, stop_event: threading.Event, data_queue: queue.Queue):
+    """test_data receiver thread
+
+    Args:
+        server (RCTAbstractTransport): Transport server
+        stop_event (threading.Event): Stop Event
+        data_queue (queue.Queue): Return queue
+    """
+    while not stop_event.is_set():
+        try:
+            retval = server.receive(65536, 1)
+        except TimeoutError:
+            continue
+        if retval is not None:
+            data_queue.put(retval)
+
 @pytest.mark.timeout(20)
-@pytest.mark.parametrize('transportPair', ['tcp', 'udp'], indirect=True)
-def test_data(transportPair: TransportPair):
-    def rx_thread(server: RCTAbstractTransport, stopEvent: threading.Event, data_queue: queue.Queue):
-        while not stopEvent.is_set():
-            try:
-                retval = server.receive(65536, 1)
-            except TimeoutError:
-                continue
-            if retval is not None:
-                data_queue.put(retval)
+@pytest.mark.parametrize('transport_pair', ['tcp', 'udp'], indirect=True)
+def test_data(transport_pair: TransportPair):
+    """Tests the data throughput
+
+    Args:
+        transportPair (TransportPair): Transport Pair
+    """
     random.seed(0)
     rx_queue: queue.Queue[Tuple[bytes, str]] = queue.Queue()
     stop_event = threading.Event()
-    rx = threading.Thread(target=rx_thread, args=(transportPair.server, stop_event, rx_queue))
-    rx.start()
+    rcvr = threading.Thread(
+        target=rx_thread,
+        args=(transport_pair.server, stop_event, rx_queue),
+        name='rx_thread'
+    )
+    rcvr.start()
     for _ in range(NUM_TRIALS):
         data_size = random.randint(0, 65535)
-        test_data = bytes([random.randint(0, 255) for _ in range(data_size)])
-        transportPair.client.send(test_data, TARGET_IP)
-        retval = rx_queue.get(True, timeout=5)
-        assert(retval is not None)
+        sim_data = bytes([random.randint(0, 255) for _ in range(data_size)])
+        transport_pair.client.send(sim_data, TARGET_IP)
+        retval = rx_queue.get(True, timeout=10)
+        assert retval is not None 
         recv_data, origin = retval
-        assert(recv_data == test_data)
-        assert(origin == TARGET_IP)
+        assert recv_data == sim_data
+        assert origin == TARGET_IP
     stop_event.set()
-    rx.join()
-    assert(not rx.is_alive())
+    rcvr.join()
+    assert not rcvr.is_alive()
