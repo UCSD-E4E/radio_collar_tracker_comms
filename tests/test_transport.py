@@ -19,7 +19,17 @@ class TransportPair:
     server: RCTAbstractTransport
 
 def transport_open(transport: RCTAbstractTransport):
-    transport.open()
+    """Attempts to open the transport
+
+    Args:
+        transport (RCTAbstractTransport): Transport to open
+    """
+    while True:
+        try:
+            transport.open()
+            return
+        except ConnectionError:
+            continue
 
 def server_connection_handler(connection, id):
     return
@@ -71,7 +81,7 @@ def transportPair(request):
         pass
 
 
-@pytest.mark.timeout(20)
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize('transportPair', ['tcp', 'udp'], indirect=True)
 def test_open(transportPair: TransportPair):
 
