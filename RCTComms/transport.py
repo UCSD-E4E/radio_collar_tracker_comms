@@ -40,6 +40,7 @@ import logging
 import os
 import select
 import selectors
+import serial
 import socket
 import threading
 import time
@@ -121,8 +122,6 @@ class RCTAbstractTransport(abc.ABC):
         '''
         Returns True if the port is open, False otherwise
         '''
-
-
 
 class RCTUDPClient(RCTAbstractTransport):
     def __init__(self, port: int):
@@ -401,3 +400,82 @@ class RCTTCPConnection(RCTAbstractTransport):
 
     def isOpen(self):
         return self.__socket is not None
+
+class RCTSerialTransport(RCTAbstractTransport):
+    '''
+    Serial Transport
+    socket.socket wrapped in a serial.Serial object wrapped in an abstract transport (move over, turducken)
+    '''
+    def __init__(self, port: str) -> None:
+        '''
+        Constructor for an RCTSerialTransport
+        :param port: port to be used in underlying socket connection
+        '''
+        self.__port = port
+        self.__serial: Optional[serial.Serial] = None
+
+    def open(self) -> None:
+        '''
+        Open the serial port.
+        '''
+        if self.__serial is None:
+            self.__serial = serial.Serial(self.__port)
+            self.__serial.set_buffer_size(rx_size=65536)
+        if not self.__serial.isOpen():
+            self.__serial.open()
+
+    def receive(self, buffer_len: int, timeout: int=None) -> Tuple[bytes, str]:
+        '''
+        Receive up to bufLen bytes of data from the port within timeout sec.
+
+        :param bufLen: Maximum number of bytes to return
+        :param timeout: Maximum number of seconds to wait for data
+
+        :return data, sender: Tuple containing the bytes received (data) and the
+                machine which sent that data (sender)
+        '''
+        if not self.__serial.isOpen():
+            raise RuntimeError
+
+        self.__serial.timeout = timeout
+        available = self.__serial.inWaiting()
+        if available < buffer_len:
+            data = self.__serial.read(available)
+        else:
+            data = self.__serial.read(buffer_len)
+
+        if len(data) == 0:
+            raise TimeoutError
+
+        return data, self.__port
+
+    def send(self, data: bytes, dest) -> None:
+        '''
+        Send given data to the specified destination from the port.
+
+        :param data: Data to transmit
+        :param dest: Destination to route data to
+        '''
+        if not self.__serial.isOpen():
+            raise RuntimeError
+
+        self.__serial.write(data)
+
+    def close(self) -> None:
+        '''
+        Close the underlying port.
+        This function shall release the underlying port to be used by other
+            processes.
+        Subsequent calls to open() shall not fail if the port is available for
+            this process to own.
+        '''
+        if self.__serial is not None:
+            self.__serial.close()
+
+    def isOpen(self) -> bool:
+        '''
+        Return True if the port is open, False otherwise
+        '''
+        if self.__serial is None:
+            return False
+        return self.__serial.isOpen()
