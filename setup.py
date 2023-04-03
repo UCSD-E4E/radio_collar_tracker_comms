@@ -1,4 +1,5 @@
-"""RCT Comms
+"""
+RCT Comms
 """
 from setuptools import setup, find_packages
 from RCTComms import __version__
@@ -16,6 +17,7 @@ setup(
             'pytest',
             'pylint',
             'pytest-timeout',
+            'serial',
             'coverage',
             'wheel',
         ]
