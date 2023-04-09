@@ -14,7 +14,7 @@ from RCTComms.transport import (RCTAbstractTransport, RCTTCPClient,
 NUM_TRIALS = 128
 
 TARGET_IP = '127.0.0.1'
-TARGET_PORT = 'COM4' # target for serial test
+TARGET_PORT = 'COM2' # target for serial test
 
 @dataclass
 class TransportPair:
@@ -22,7 +22,8 @@ class TransportPair:
     server: RCTAbstractTransport
 
 def transport_open(transport: RCTAbstractTransport):
-    """Attempts to open the transport
+    """
+    Attempts to open the transport
 
     Args:
         transport (RCTAbstractTransport): Transport to open
@@ -42,7 +43,8 @@ def server_disconnect_handler():
 
 @pytest.fixture(name='transport_pair')
 def create_transport_pair(request):
-    """Creates a transport pair
+    """
+    Creates a transport pair
 
     Args:
         request (pytest.FixtureRequest): Fixture Request
@@ -91,8 +93,8 @@ def create_transport_pair(request):
         server_open_thread.join(timeout=5)
 
     elif request.param == 'serial':
-        # install com0com pair 'COM3' and 'COM4' to test
-        transport_pair = TransportPair(RCTSerialTransport('COM3'), RCTSerialTransport('COM4'))
+        # install com0com pair 'COM1' and 'COM2' to test
+        transport_pair = TransportPair(RCTSerialTransport('COM1'), RCTSerialTransport('COM2'))
         server_open_thread = threading.Thread(target=transport_open, args=(transport_pair.server,))
         client_open_thread = threading.Thread(target=transport_open, args=(transport_pair.client,))
         server_open_thread.start()
@@ -125,7 +127,8 @@ def test_open(transport_pair: TransportPair):
     assert(server.isOpen())
 
 def rx_thread(server: RCTAbstractTransport, stop_event: threading.Event, data_queue: queue.Queue):
-    """test_data receiver thread
+    """
+    test_data receiver thread
 
     Args:
         server (RCTAbstractTransport): Transport server
@@ -143,7 +146,8 @@ def rx_thread(server: RCTAbstractTransport, stop_event: threading.Event, data_qu
 @pytest.mark.timeout(20)
 @pytest.mark.parametrize('transport_pair', ['tcp', 'udp', 'serial'], indirect=True)
 def test_data(transport_pair: TransportPair):
-    """Tests the data throughput
+    """
+    Tests the data throughput
 
     Args:
         transport_pair (TransportPair): Transport Pair
