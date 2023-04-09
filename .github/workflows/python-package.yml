@@ -20,7 +20,7 @@ jobs:
     - name: Install Emulator
       with:
         path: ./
-      run:
+      run: |
         setup.exe CNC_INSTALL_COMX_COMX_PORTS=YES
     - name: Install
       run: |
