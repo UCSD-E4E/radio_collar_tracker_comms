@@ -17,11 +17,15 @@ jobs:
       uses: actions/setup-python@v3
       with:
         python-version: "3.8"
+    - name: Install Emulator
+      with:
+        path: ./
+      run:
+        setup.exe CNC_INSTALL_COMX_COMX_PORTS=YES
     - name: Install
       run: |
         python -m pip install .[dev]
         python -m pip install wheel
-        d:\a\radio_collar_tracker_comms\setup.exe CNC_INSTALL_COMX_COMX_PORTS=YES
     - name: Test
       run: |
         python -m pytest tests/
