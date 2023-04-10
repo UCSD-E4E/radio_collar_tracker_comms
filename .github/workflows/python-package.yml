@@ -22,7 +22,6 @@ jobs:
         setup.exe /S CNC_INSTALL_CNCA0_CNCB0_PORTS=YES /D=C:\"Program Files (x86)"\com0com
         copy C:\"Program Files (x86)"\com0com\com0com.inf .\com0com.inf
         C:\"Program Files (x86)"\com0com\setupc.exe "install PortName=COM1 PortName=COM2"
-        copy .\com0com.inf C:\"Program Files (x86)"\com0com\com0com.inf
       shell: cmd
     - name: Install
       run: |
