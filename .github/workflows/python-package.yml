@@ -23,9 +23,10 @@ jobs:
       shell: cmd
     - name: Rename Emulator
       run: |
-        ./com0com/setupc.exe "change CNCA0 PortName=COM1"
-        ./com0com/setupc.exe "change CNCB0 PortName=COM2"
+        setupc.exe "change CNCA0 PortName=COM1"
+        setupc.exe "change CNCB0 PortName=COM2"
       shell: cmd
+      working-directory: ./com0com
     - name: Install
       run: |
         python -m pip install .[dev]
