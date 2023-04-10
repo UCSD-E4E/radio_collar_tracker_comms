@@ -18,7 +18,10 @@ jobs:
       with:
         python-version: "3.8"
     - name: Install Emulator
-      run: setup.exe /S CNC_INSTALL_COMX_COMX_PORTS=YES
+      run: |
+        setup.exe /S CNC_INSTALL_CNCA0_CNCB0_PORTS=YES /D=C:\Program Files\com0com
+        C:\Program /S Files\com0com\setupc.exe "change CNCA0 PortName=COM1"
+        C:\Program /S Files\com0com\setupc.exe "change CNCB0 PortName=COM2"
       shell: cmd
     - name: Install
       run: |
