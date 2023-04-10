@@ -21,8 +21,8 @@ jobs:
       run: |
         setup.exe /S CNC_INSTALL_CNCA0_CNCB0_PORTS=YES /D=C:\"Program Files"\com0com
         copy C:\"Program Files"\com0com\com0com.inf .\com0com.inf
-        C:\"Program Files (x86)"\com0com\setupc.exe "change CNCA0 PortName=COM1"
-        C:\"Program Files (x86)"\com0com\setupc.exe "change CNCB0 PortName=COM2"
+        C:\"Program Files"\com0com\setupc.exe "change CNCA0 PortName=COM1"
+        C:\"Program Files"\com0com\setupc.exe "change CNCB0 PortName=COM2"
       shell: cmd
     - name: Install
       run: |
