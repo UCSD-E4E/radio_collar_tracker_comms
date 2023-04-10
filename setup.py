@@ -17,7 +17,7 @@ setup(
             'pytest',
             'pylint',
             'pytest-timeout',
-            'serial',
+            'pyserial',
             'coverage',
             'wheel',
         ]
