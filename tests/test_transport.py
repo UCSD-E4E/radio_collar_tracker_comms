@@ -57,10 +57,6 @@ def create_transport_pair(request):
         sock.bind(('', 0))
         port = sock.getsockname()[1]
     if request.param == 'tcp':
-        with socket.socket() as s:
-            s.bind(('', 0))
-            port = s.getsockname()[1]
-
         server = RCTTCPServer(port, server_connection_handler)
         client = RCTTCPClient(port, TARGET_IP)
 
@@ -77,10 +73,6 @@ def create_transport_pair(request):
         transport_pair = TransportPair(client, server_connection)
 
     elif request.param == 'udp':
-        with socket.socket() as s:
-            s.bind(('', 0))
-            port = s.getsockname()[1]
-
         transport_pair = TransportPair(RCTUDPClient(port), RCTUDPServer(port))
         server_open_thread = threading.Thread(target=transport_open, args=(transport_pair.server,))
         client_open_thread = threading.Thread(target=transport_open, args=(transport_pair.client,))
