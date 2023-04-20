@@ -70,15 +70,15 @@ class RCTAbstractTransport(abc.ABC):
         '''
 
     @abc.abstractmethod
-    def receive(self, bufLen: int, timeout: int=None) -> Tuple[bytes, str]:
+    def receive(self, buffer_len: int, timeout: int=None) -> Tuple[bytes, str]:
         '''
         Receives data from the port.  This function shall attempt to retrieve at
-        most buflen bytes from the port within timeout seconds.
+        most buffer_len bytes from the port within timeout seconds.
 
-        If there are less than buflen bytes available when this function is
+        If there are less than buffer_len bytes available when this function is
         called, the function shall return all available bytes immediately.  If
-        there are more than buflen bytes available when this function is
-        called, the function shall return exactly buflen bytes.  If there is no
+        there are more than buffer_len bytes available when this function is
+        called, the function shall return exactly buffer_len bytes.  If there is no
         data available when this function is called, this function shall wait at
         most timeout seconds.  If any data arrives within timeout seconds, that
         data shall be immediately returned.  If no data arrives, the function
@@ -91,7 +91,7 @@ class RCTAbstractTransport(abc.ABC):
         Making a call to this function when the port is not open shall result in
         an Exception.
 
-        :param bufLen:    Maximum number of bytes to return
+        :param buffer_len:    Maximum number of bytes to return
         :param timeout:    Maximum number of seconds to wait for data
         '''
 
@@ -139,12 +139,12 @@ class RCTUDPClient(RCTAbstractTransport):
         finally:
             self.__socket = None
 
-    def receive(self, bufLen: int, timeout: int=None):
+    def receive(self, buffer_len: int, timeout: int=None):
         if self.__socket is None:
             raise RuntimeError()
         ready = select.select([self.__socket], [], [], timeout)
         if len(ready[0]) == 1:
-            data, addr = self.__socket.recvfrom(bufLen)
+            data, addr = self.__socket.recvfrom(buffer_len)
             return data, addr[0]
         else:
             raise TimeoutError
@@ -179,12 +179,12 @@ class RCTUDPServer(RCTAbstractTransport):
             pass
         self.__socket = None
 
-    def receive(self, bufLen: int, timeout: int = None):
+    def receive(self, buffer_len: int, timeout: int = None):
         if self.__socket is None:
             raise RuntimeError()
         ready = select.select([self.__socket], [], [], timeout)
         if ready[0]:
-            data, addr = self.__socket.recvfrom(bufLen)
+            data, addr = self.__socket.recvfrom(buffer_len)
             return data, addr[0]
         else:
             raise TimeoutError
@@ -219,7 +219,7 @@ class RCTPipeClient(RCTAbstractTransport):
         self.__inFile = None
         self.__outFile = None
 
-    def receive(self, bufLen: int, timeout: int = None):
+    def receive(self, buffer_len: int, timeout: int = None):
         pass
 
     def send(self, data: bytes, dest):
@@ -248,12 +248,12 @@ class RCTTCPClient(RCTAbstractTransport):
         self.__socket.close()
         self.__socket = None
 
-    def receive(self, bufLen: int, timeout: int=None):
+    def receive(self, buffer_len: int, timeout: int=None):
         if self.__socket is None:
             raise RuntimeError()
         ready = select.select([self.__socket], [], [], timeout)
         if len(ready[0]) == 1:
-            data = self.__socket.recv(bufLen)
+            data = self.__socket.recv(buffer_len)
             return data, self.__target[0]
         else:
             raise TimeoutError
@@ -371,7 +371,7 @@ class RCTTCPConnection(RCTAbstractTransport):
         except:
             pass
 
-    def receive(self, bufLen: int, timeout: int=None):
+    def receive(self, buffer_len: int, timeout: int=None):
         if self.__socket is None:
             raise RuntimeError()
         if self.__addr is None:
@@ -383,7 +383,7 @@ class RCTTCPConnection(RCTAbstractTransport):
 
         for key, mask in events:
             if mask and selectors.EVENT_READ:
-                recv_data = key.fileobj.recv(bufLen)
+                recv_data = key.fileobj.recv(buffer_len)
                 if recv_data:
                     return recv_data, self.__addr[0]
                 else:
@@ -404,7 +404,7 @@ class RCTTCPConnection(RCTAbstractTransport):
 class RCTSerialTransport(RCTAbstractTransport):
     '''
     Serial Transport
-    socket.socket wrapped in a serial.Serial object wrapped in an abstract transport (move over, turducken)
+    No client/server distinction
     '''
     def __init__(self, port: str) -> None:
         '''
@@ -426,9 +426,9 @@ class RCTSerialTransport(RCTAbstractTransport):
 
     def receive(self, buffer_len: int, timeout: int=None) -> Tuple[bytes, str]:
         '''
-        Receive up to bufLen bytes of data from the port within timeout sec.
+        Receive up to buffer_len bytes of data from the port within timeout sec.
 
-        :param bufLen: Maximum number of bytes to return
+        :param buffer_len: Maximum number of bytes to return
         :param timeout: Maximum number of seconds to wait for data
 
         :return data, sender: Tuple containing the bytes received (data) and the

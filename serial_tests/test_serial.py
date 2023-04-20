@@ -1,12 +1,14 @@
+"""
+Transport tests for serial transport class
+"""
+import pytest
 import queue
 import random
-import socket
 import threading
 
 from dataclasses import dataclass
 from typing import Tuple
 
-import pytest
 from RCTComms.transport import (RCTAbstractTransport, RCTSerialTransport)
 
 NUM_TRIALS = 128
@@ -15,6 +17,10 @@ TARGET_PORT = 'COM2'
 
 @dataclass
 class TransportPair:
+    '''
+    Dataclass to store two abstract transport objects, a client and a server
+    which are paired together.
+    '''
     client: RCTAbstractTransport
     server: RCTAbstractTransport
 
@@ -31,12 +37,6 @@ def transport_open(transport: RCTAbstractTransport):
             return
         except ConnectionError:
             continue
-
-def server_connection_handler(connection, id):
-    return
-
-def server_disconnect_handler():
-    return
 
 @pytest.fixture(name='transport_pair')
 def create_transport_pair(request):
@@ -70,22 +70,24 @@ def create_transport_pair(request):
         raise TimeoutError()
 
     yield transport_pair
-    try:
-        transport_pair.client.close()
-        transport_pair.server.close()
-    except:
-        pass
-
+    transport_pair.server.close()
+    transport_pair.client.close()
 
 @pytest.mark.timeout(20)
 @pytest.mark.parametrize('transport_pair', ['serial'], indirect=True)
 def test_open(transport_pair: TransportPair):
+    """
+    Tests that transport objects open correctly
+
+    Args:
+        transport_pair (TransportPair): Transport Pair
+    """
 
     client = transport_pair.client
     server = transport_pair.server
 
-    assert(client.isOpen())
-    assert(server.isOpen())
+    assert client.isOpen()
+    assert server.isOpen()
 
 def rx_thread(server: RCTAbstractTransport, stop_event: threading.Event, data_queue: queue.Queue):
     """

@@ -16,7 +16,9 @@ jobs:
         python-version: "3.8"
     - name: Install Emulator
       run: |
-        setup.exe /S CNC_INSTALL_CNCA0_CNCB0_PORTS=YES /D=C:\"Program Files"\com0com
+        curl https://sourceforge.net/projects/com0com/files/com0com/2.2.2.0/com0com-2.2.2.0-x64-fre-signed.zip/download -L -o ./com0com.zip
+        tar -xf Name.zip
+        com0com-2.2.2.0-x64-fre-signed\setup.exe /S CNC_INSTALL_CNCA0_CNCB0_PORTS=YES /D=C:\"Program Files"\com0com
         copy C:\"Program Files"\com0com\com0com.inf .\com0com.inf
         C:\"Program Files"\com0com\setupc.exe "change CNCA0 PortName=COM1"
         C:\"Program Files"\com0com\setupc.exe "change CNCB0 PortName=COM2"

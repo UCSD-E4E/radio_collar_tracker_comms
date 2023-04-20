@@ -11,13 +11,12 @@ setup(
     author='UC San Diego - Engineers for Exploration',
     author_email='e4e@eng.ucsd.edu',
     packages=find_packages(),
-    install_requires=[],
+    install_requires=[ 'pyserial' ],
     extras_require={
         'dev': [
             'pytest',
             'pylint',
             'pytest-timeout',
-            'pyserial',
             'coverage',
             'wheel',
         ]
