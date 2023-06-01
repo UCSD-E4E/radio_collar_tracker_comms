@@ -123,6 +123,16 @@ class RCTAbstractTransport(abc.ABC):
         Returns True if the port is open, False otherwise
         '''
 
+    @property
+    @abc.abstractmethod
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
+
+
 class RCTUDPClient(RCTAbstractTransport):
     def __init__(self, port: int):
         self.__socket: Optional[socket.socket] = None
@@ -157,6 +167,14 @@ class RCTUDPClient(RCTAbstractTransport):
     def isOpen(self):
         return self.__socket is not None
 
+    @property
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
+        return self.__port
 
 class RCTUDPServer(RCTAbstractTransport):
     def __init__(self, port: int):
@@ -199,6 +217,15 @@ class RCTUDPServer(RCTAbstractTransport):
     def isOpen(self):
         return self.__socket is not None
 
+    @property
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
+        return self.__port
+
 
 class RCTPipeClient(RCTAbstractTransport):
     def __init__(self):
@@ -227,6 +254,15 @@ class RCTPipeClient(RCTAbstractTransport):
 
     def isOpen(self):
         return self.__inFile is not None and self.__outFile is not None
+
+    @property
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
+        return 'pipe'
 
 class RCTTCPClient(RCTAbstractTransport):
     def __init__(self, port: int, addr: str):
@@ -266,6 +302,15 @@ class RCTTCPClient(RCTAbstractTransport):
 
     def isOpen(self):
         return self.__socket is not None
+
+    @property
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
+        return f'{self.__target[0]}:{self.__target[1]}'
 
 class RCTTCPServer:
     def __init__(self, port: int, connectionHandler: Callable[[RCTAbstractTransport, int], None], addr: str = ''):
@@ -401,6 +446,15 @@ class RCTTCPConnection(RCTAbstractTransport):
     def isOpen(self):
         return self.__socket is not None
 
+    @property
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
+        return f'{self.__addr[0]}:{self.__addr[1]}'
+
 class RCTSerialTransport(RCTAbstractTransport):
     '''
     Serial Transport
@@ -414,13 +468,23 @@ class RCTSerialTransport(RCTAbstractTransport):
         self.__port = port
         self.__serial: Optional[serial.Serial] = None
 
+    @property
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
+        return self.__port
+
     def open(self) -> None:
         '''
         Open the serial port.
         '''
         if self.__serial is None:
             self.__serial = serial.Serial(self.__port)
-            self.__serial.set_buffer_size(rx_size=65536)
+            if hasattr(self.__serial, 'set_buffer_size'):
+                self.__serial.set_buffer_size(rx_size=65536)
         if not self.__serial.isOpen():
             self.__serial.open()
 
