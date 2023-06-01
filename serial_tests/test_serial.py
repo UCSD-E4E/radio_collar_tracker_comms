@@ -39,7 +39,7 @@ def transport_open(transport: RCTAbstractTransport):
             continue
 
 @pytest.fixture(name='transport_pair')
-def create_transport_pair(request):
+def create_transport_pair(request, serial_pair):
     """
     Creates a transport pair
 
@@ -56,7 +56,7 @@ def create_transport_pair(request):
 
     if request.param == 'serial':
         # install com0com pair 'COM1' and 'COM2' to test
-        transport_pair = TransportPair(RCTSerialTransport('COM1'), RCTSerialTransport('COM2'))
+        transport_pair = TransportPair(RCTSerialTransport(serial_pair[0]), RCTSerialTransport(serial_pair[1]))
         server_open_thread = threading.Thread(target=transport_open, args=(transport_pair.server,))
         client_open_thread = threading.Thread(target=transport_open, args=(transport_pair.client,))
         server_open_thread.start()
@@ -132,7 +132,7 @@ def test_data(transport_pair: TransportPair):
         assert retval is not None
         recv_data, origin = retval
         assert recv_data == sim_data
-        assert origin == TARGET_PORT
+        assert origin == transport_pair.server.port_name
     stop_event.set()
     rcvr.join()
     assert not rcvr.is_alive()
