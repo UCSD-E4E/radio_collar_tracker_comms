@@ -482,7 +482,7 @@ class RCTSerialTransport(RCTAbstractTransport):
         Open the serial port.
         '''
         if self.__serial is None:
-            self.__serial = serial.Serial(self.__port)
+            self.__serial = serial.Serial(self.__port, baudrate=115200)
             if hasattr(self.__serial, 'set_buffer_size'):
                 self.__serial.set_buffer_size(rx_size=65536)
         if not self.__serial.isOpen():
