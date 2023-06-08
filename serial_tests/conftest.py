@@ -1,11 +1,14 @@
 '''Test Fixtures
 '''
+import json
 import logging
 import os
+import platform
 import pty
 import tty
 from contextlib import ExitStack
 from io import FileIO
+from pathlib import Path
 from selectors import EVENT_READ
 from selectors import DefaultSelector as Selector
 from threading import Thread
@@ -78,6 +81,19 @@ def create_serial_pair() -> Tuple[str, str]:
     Yields:
         Iterator[Tuple[str, str]]: Serial port Pair
     """
-    with VirtualSerialPortPair() as port_pair:
-        ports = port_pair.ports
-        yield ports
+    hardware_config_path = Path('hardware_serial.json')
+    if hardware_config_path.is_file():
+        with open(hardware_config_path, 'r', encoding='ascii') as handle:
+            hardware_config_params = json.load(handle)
+            assert isinstance(hardware_config_params, list)
+            assert all(isinstance(param, str) for param in hardware_config_params)
+            assert len(hardware_config_params) == 2
+        yield hardware_config_params
+        return
+
+    if platform.system() == 'Linux':
+        with VirtualSerialPortPair() as port_pair:
+            ports = port_pair.ports
+            yield ports
+        return
+    raise NotImplementedError()
