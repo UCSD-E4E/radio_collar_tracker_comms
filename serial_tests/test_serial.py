@@ -1,20 +1,27 @@
+"""
+Transport tests for serial transport class
+"""
 import queue
 import random
-import socket
 import threading
-
+import time
 from dataclasses import dataclass
 from typing import Tuple
 
 import pytest
-from RCTComms.transport import (RCTAbstractTransport, RCTTCPClient,
-                                RCTTCPServer, RCTUDPClient, RCTUDPServer)
+
+from RCTComms.transport import RCTAbstractTransport, RCTSerialTransport
 
 NUM_TRIALS = 128
 TARGET_IP = '127.0.0.1'
+TARGET_PORT = 'COM2'
 
 @dataclass
 class TransportPair:
+    '''
+    Dataclass to store two abstract transport objects, a client and a server
+    which are paired together.
+    '''
     client: RCTAbstractTransport
     server: RCTAbstractTransport
 
@@ -32,14 +39,8 @@ def transport_open(transport: RCTAbstractTransport):
         except ConnectionError:
             continue
 
-def server_connection_handler(connection, id):
-    return
-
-def server_disconnect_handler():
-    return
-
 @pytest.fixture(name='transport_pair')
-def create_transport_pair(request):
+def create_transport_pair(request, serial_pair):
     """
     Creates a transport pair
 
@@ -47,40 +48,22 @@ def create_transport_pair(request):
         request (pytest.FixtureRequest): Fixture Request
 
     Raises:
-        RuntimeError: Unknown socket type
+        RuntimeError: Unknown transport type
         TimeoutError: Failed to connect
 
     Yields:
         TransportPair: Pair of active transports
     """
-    with socket.socket() as sock:
-        sock.bind(('', 0))
-        port = sock.getsockname()[1]
-    if request.param == 'tcp':
-        server = RCTTCPServer(port, server_connection_handler)
-        client = RCTTCPClient(port, TARGET_IP)
 
-        server_open_thread = threading.Thread(target=transport_open, args=(server,))
-        client_open_thread = threading.Thread(target=transport_open, args=(client,))
-        server_open_thread.start()
-        client_open_thread.start()
-        while len(server.simList) < 1:
-            continue
-        client_open_thread.join(timeout=5)
-        server_open_thread.join(timeout=5)
-
-        server_connection = server.simList[0]
-        transport_pair = TransportPair(client, server_connection)
-
-    elif request.param == 'udp':
-        transport_pair = TransportPair(RCTUDPClient(port), RCTUDPServer(port))
+    if request.param == 'serial':
+        # install com0com pair 'COM1' and 'COM2' to test
+        transport_pair = TransportPair(RCTSerialTransport(serial_pair[0]), RCTSerialTransport(serial_pair[1]))
         server_open_thread = threading.Thread(target=transport_open, args=(transport_pair.server,))
         client_open_thread = threading.Thread(target=transport_open, args=(transport_pair.client,))
         server_open_thread.start()
         client_open_thread.start()
         client_open_thread.join(timeout=5)
         server_open_thread.join(timeout=5)
-
     else:
         raise RuntimeError
 
@@ -88,22 +71,24 @@ def create_transport_pair(request):
         raise TimeoutError()
 
     yield transport_pair
-    try:
-        transport_pair.client.close()
-        transport_pair.server.close()
-    except:
-        pass
-
+    transport_pair.server.close()
+    transport_pair.client.close()
 
 @pytest.mark.timeout(20)
-@pytest.mark.parametrize('transport_pair', ['tcp', 'udp'], indirect=True)
+@pytest.mark.parametrize('transport_pair', ['serial'], indirect=True)
 def test_open(transport_pair: TransportPair):
+    """
+    Tests that transport objects open correctly
+
+    Args:
+        transport_pair (TransportPair): Transport Pair
+    """
 
     client = transport_pair.client
     server = transport_pair.server
 
-    assert(client.isOpen())
-    assert(server.isOpen())
+    assert client.isOpen()
+    assert server.isOpen()
 
 def rx_thread(server: RCTAbstractTransport, stop_event: threading.Event, data_queue: queue.Queue):
     """
@@ -123,7 +108,7 @@ def rx_thread(server: RCTAbstractTransport, stop_event: threading.Event, data_qu
             data_queue.put(retval)
 
 @pytest.mark.timeout(20)
-@pytest.mark.parametrize('transport_pair', ['tcp', 'udp'], indirect=True)
+@pytest.mark.parametrize('transport_pair', ['serial'], indirect=True)
 def test_data(transport_pair: TransportPair):
     """
     Tests the data throughput
@@ -148,7 +133,7 @@ def test_data(transport_pair: TransportPair):
         assert retval is not None
         recv_data, origin = retval
         assert recv_data == sim_data
-        assert origin == TARGET_IP
+        assert origin == transport_pair.server.port_name
     stop_event.set()
     rcvr.join()
     assert not rcvr.is_alive()

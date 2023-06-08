@@ -40,6 +40,7 @@ import logging
 import os
 import select
 import selectors
+import serial
 import socket
 import threading
 import time
@@ -69,15 +70,15 @@ class RCTAbstractTransport(abc.ABC):
         '''
 
     @abc.abstractmethod
-    def receive(self, bufLen: int, timeout: int=None) -> Tuple[bytes, str]:
+    def receive(self, buffer_len: int, timeout: int=None) -> Tuple[bytes, str]:
         '''
         Receives data from the port.  This function shall attempt to retrieve at
-        most buflen bytes from the port within timeout seconds.
+        most buffer_len bytes from the port within timeout seconds.
 
-        If there are less than buflen bytes available when this function is
+        If there are less than buffer_len bytes available when this function is
         called, the function shall return all available bytes immediately.  If
-        there are more than buflen bytes available when this function is
-        called, the function shall return exactly buflen bytes.  If there is no
+        there are more than buffer_len bytes available when this function is
+        called, the function shall return exactly buffer_len bytes.  If there is no
         data available when this function is called, this function shall wait at
         most timeout seconds.  If any data arrives within timeout seconds, that
         data shall be immediately returned.  If no data arrives, the function
@@ -90,7 +91,7 @@ class RCTAbstractTransport(abc.ABC):
         Making a call to this function when the port is not open shall result in
         an Exception.
 
-        :param bufLen:    Maximum number of bytes to return
+        :param buffer_len:    Maximum number of bytes to return
         :param timeout:    Maximum number of seconds to wait for data
         '''
 
@@ -122,6 +123,14 @@ class RCTAbstractTransport(abc.ABC):
         Returns True if the port is open, False otherwise
         '''
 
+    @property
+    @abc.abstractmethod
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
 
 
 class RCTUDPClient(RCTAbstractTransport):
@@ -140,12 +149,12 @@ class RCTUDPClient(RCTAbstractTransport):
         finally:
             self.__socket = None
 
-    def receive(self, bufLen: int, timeout: int=None):
+    def receive(self, buffer_len: int, timeout: int=None):
         if self.__socket is None:
             raise RuntimeError()
         ready = select.select([self.__socket], [], [], timeout)
         if len(ready[0]) == 1:
-            data, addr = self.__socket.recvfrom(bufLen)
+            data, addr = self.__socket.recvfrom(buffer_len)
             return data, addr[0]
         else:
             raise TimeoutError
@@ -158,6 +167,14 @@ class RCTUDPClient(RCTAbstractTransport):
     def isOpen(self):
         return self.__socket is not None
 
+    @property
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
+        return self.__port
 
 class RCTUDPServer(RCTAbstractTransport):
     def __init__(self, port: int):
@@ -180,12 +197,12 @@ class RCTUDPServer(RCTAbstractTransport):
             pass
         self.__socket = None
 
-    def receive(self, bufLen: int, timeout: int = None):
+    def receive(self, buffer_len: int, timeout: int = None):
         if self.__socket is None:
             raise RuntimeError()
         ready = select.select([self.__socket], [], [], timeout)
         if ready[0]:
-            data, addr = self.__socket.recvfrom(bufLen)
+            data, addr = self.__socket.recvfrom(buffer_len)
             return data, addr[0]
         else:
             raise TimeoutError
@@ -199,6 +216,15 @@ class RCTUDPServer(RCTAbstractTransport):
 
     def isOpen(self):
         return self.__socket is not None
+
+    @property
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
+        return self.__port
 
 
 class RCTPipeClient(RCTAbstractTransport):
@@ -220,7 +246,7 @@ class RCTPipeClient(RCTAbstractTransport):
         self.__inFile = None
         self.__outFile = None
 
-    def receive(self, bufLen: int, timeout: int = None):
+    def receive(self, buffer_len: int, timeout: int = None):
         pass
 
     def send(self, data: bytes, dest):
@@ -228,6 +254,15 @@ class RCTPipeClient(RCTAbstractTransport):
 
     def isOpen(self):
         return self.__inFile is not None and self.__outFile is not None
+
+    @property
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
+        return 'pipe'
 
 class RCTTCPClient(RCTAbstractTransport):
     def __init__(self, port: int, addr: str):
@@ -249,12 +284,12 @@ class RCTTCPClient(RCTAbstractTransport):
         self.__socket.close()
         self.__socket = None
 
-    def receive(self, bufLen: int, timeout: int=None):
+    def receive(self, buffer_len: int, timeout: int=None):
         if self.__socket is None:
             raise RuntimeError()
         ready = select.select([self.__socket], [], [], timeout)
         if len(ready[0]) == 1:
-            data = self.__socket.recv(bufLen)
+            data = self.__socket.recv(buffer_len)
             return data, self.__target[0]
         else:
             raise TimeoutError
@@ -267,6 +302,15 @@ class RCTTCPClient(RCTAbstractTransport):
 
     def isOpen(self):
         return self.__socket is not None
+
+    @property
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
+        return f'{self.__target[0]}:{self.__target[1]}'
 
 class RCTTCPServer:
     def __init__(self, port: int, connectionHandler: Callable[[RCTAbstractTransport, int], None], addr: str = ''):
@@ -372,7 +416,7 @@ class RCTTCPConnection(RCTAbstractTransport):
         except:
             pass
 
-    def receive(self, bufLen: int, timeout: int=None):
+    def receive(self, buffer_len: int, timeout: int=None):
         if self.__socket is None:
             raise RuntimeError()
         if self.__addr is None:
@@ -384,7 +428,7 @@ class RCTTCPConnection(RCTAbstractTransport):
 
         for key, mask in events:
             if mask and selectors.EVENT_READ:
-                recv_data = key.fileobj.recv(bufLen)
+                recv_data = key.fileobj.recv(buffer_len)
                 if recv_data:
                     return recv_data, self.__addr[0]
                 else:
@@ -401,3 +445,101 @@ class RCTTCPConnection(RCTAbstractTransport):
 
     def isOpen(self):
         return self.__socket is not None
+
+    @property
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
+        return f'{self.__addr[0]}:{self.__addr[1]}'
+
+class RCTSerialTransport(RCTAbstractTransport):
+    '''
+    Serial Transport
+    No client/server distinction
+    '''
+    def __init__(self, port: str) -> None:
+        '''
+        Constructor for an RCTSerialTransport
+        :param port: port to be used in underlying socket connection
+        '''
+        self.__port = port
+        self.__serial: Optional[serial.Serial] = None
+
+    @property
+    def port_name(self) -> str:
+        """Returns the name of the port
+
+        Returns:
+            str: String representation of the port
+        """
+        return self.__port
+
+    def open(self) -> None:
+        '''
+        Open the serial port.
+        '''
+        if self.__serial is None:
+            self.__serial = serial.Serial(self.__port, baudrate=115200)
+            if hasattr(self.__serial, 'set_buffer_size'):
+                self.__serial.set_buffer_size(rx_size=65536)
+        if not self.__serial.isOpen():
+            self.__serial.open()
+
+    def receive(self, buffer_len: int, timeout: int=None) -> Tuple[bytes, str]:
+        '''
+        Receive up to buffer_len bytes of data from the port within timeout sec.
+
+        :param buffer_len: Maximum number of bytes to return
+        :param timeout: Maximum number of seconds to wait for data
+
+        :return data, sender: Tuple containing the bytes received (data) and the
+                machine which sent that data (sender)
+        '''
+        if not self.__serial.isOpen():
+            raise RuntimeError
+
+        self.__serial.timeout = timeout
+        available = self.__serial.inWaiting()
+        if available < buffer_len:
+            data = self.__serial.read(available)
+        else:
+            data = self.__serial.read(buffer_len)
+
+        if len(data) == 0:
+            raise TimeoutError
+
+        return data, self.__port
+
+    def send(self, data: bytes, dest) -> None:
+        '''
+        Send given data to the specified destination from the port.
+
+        :param data: Data to transmit
+        :param dest: Destination to route data to
+        '''
+        if not self.__serial.isOpen():
+            raise RuntimeError
+
+        self.__serial.write(data)
+
+    def close(self) -> None:
+        '''
+        Close the underlying port.
+        This function shall release the underlying port to be used by other
+            processes.
+        Subsequent calls to open() shall not fail if the port is available for
+            this process to own.
+        '''
+        if self.__serial is not None:
+            self.__serial.close()
+
+    def isOpen(self) -> bool:
+        '''
+        Return True if the port is open, False otherwise
+        '''
+        if self.__serial is None:
+            return False
+        return self.__serial.isOpen()
