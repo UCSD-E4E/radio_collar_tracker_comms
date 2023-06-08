@@ -1,15 +1,16 @@
 """
 Transport tests for serial transport class
 """
-import pytest
 import queue
 import random
 import threading
-
+import time
 from dataclasses import dataclass
 from typing import Tuple
 
-from RCTComms.transport import (RCTAbstractTransport, RCTSerialTransport)
+import pytest
+
+from RCTComms.transport import RCTAbstractTransport, RCTSerialTransport
 
 NUM_TRIALS = 128
 TARGET_IP = '127.0.0.1'
