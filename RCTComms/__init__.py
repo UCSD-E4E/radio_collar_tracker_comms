@@ -1,1 +1,3 @@
-__version__ = '0.0.0.9'
+'''RCT Comms Library
+'''
+__version__ = '0.0.0.10'
