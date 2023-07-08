@@ -14,7 +14,7 @@ from typing import Callable, Dict, Optional, Tuple
 from urllib.parse import ParseResult, parse_qs, urlparse
 
 import serial
-from schema import Schema
+from schema import Schema, Or
 
 
 class RCTAbstractTransport(abc.ABC):
@@ -569,7 +569,7 @@ class RCTTransportFactory:
     @classmethod
     def __create_serial(cls, spec: ParseResult) -> RCTSerialTransport:
         schema = Schema({
-            'baud': int
+            'baud': Or(int, str)
         })
         params = schema.validate(parse_qs(spec.query))
-        return RCTSerialTransport(spec.path, baudrate=params['baud'])
+        return RCTSerialTransport(spec.path, baudrate=int(params['baud']))
