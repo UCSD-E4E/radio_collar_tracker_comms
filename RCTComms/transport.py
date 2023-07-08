@@ -1,39 +1,5 @@
-###############################################################################
-#     Radio Collar Tracker Ground Control Software
-#     Copyright (C) 2020  Nathan Hui
-#
-#     This program is free software: you can redistribute it and/or modify
-#     it under the terms of the GNU General Public License as published by
-#     the Free Software Foundation, either version 3 of the License, or
-#     (at your option) any later version.
-#
-#     This program is distributed in the hope that it will be useful,
-#     but WITHOUT ANY WARRANTY; without even the implied warranty of
-#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#     GNU General Public License for more details.
-#
-#     You should have received a copy of the GNU General Public License
-#     along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
-###############################################################################
-#
-# DATE      WHO DESCRIPTION
-# -----------------------------------------------------------------------------
-# 07/14/22  HG  Renamed RCTTCPServer to RCTTCPServerConnection;
-#                 Created new RCTTCPServer class to accept connections
-# 04/17/22  HG  Set server listening addr to ''
-# 03/26/22  HG  Changed GCS to server and drone to client,
-#                 added scaffolding for accepting multiple connections
-# 07/29/20  NH  Added isOpen method for all classes
-# 07/23/20  NH  Added docstring for base class
-# 05/25/20  NH  Started docstrings
-# 05/20/20  NH  Fixed select condition in TCP clients
-# 05/18/20  NH  Removed unused enumerations
-# 04/26/20  NH  Added TCP Server and Client
-# 04/25/20  NH  Moved Commands and PacketTypes to rctTransport
-# 04/19/20  NH  Initial commit: base class, UDP Transport
-#
-###############################################################################
+'''Radio Collar Tracker Communication Transport Abstractions
+'''
 
 import abc
 import logging
