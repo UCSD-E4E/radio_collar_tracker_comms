@@ -569,7 +569,7 @@ class RCTTransportFactory:
     @classmethod
     def __create_serial(cls, spec: ParseResult) -> RCTSerialTransport:
         schema = Schema({
-            'baud': Or(int, str)
+            'baud': [Or(int, str)]
         })
         params = schema.validate(parse_qs(spec.query))
-        return RCTSerialTransport(spec.path, baudrate=int(params['baud']))
+        return RCTSerialTransport(spec.path, baudrate=int(params['baud'][0]))
