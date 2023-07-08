@@ -6,12 +6,16 @@ import logging
 import os
 import select
 import selectors
-import serial
 import socket
 import threading
 import time
 import types
-from typing import Callable, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple
+from urllib.parse import ParseResult, parse_qs, urlparse
+
+import serial
+from schema import Schema
+
 
 class RCTAbstractTransport(abc.ABC):
     '''
@@ -510,3 +514,62 @@ class RCTSerialTransport(RCTAbstractTransport):
         if self.__serial is None:
             return False
         return self.__serial.isOpen()
+
+class RCTTransportFactory:
+    """Enables creating transports from a string specification
+    """
+    # pylint: disable=too-few-public-methods
+    # This is a factory class with a single creation routine
+    @classmethod
+    def create_transport(cls, spec: str) -> RCTAbstractTransport:
+        """Creates a new transport based on a string specification.
+
+        | Type          | Resulting Object      | Syntax                            |
+        |---------------|-----------------------|-----------------------------------|
+        | Serial        | RCTSerialTransport    | serial:{device}?baud={baudrate}   |
+        | TCP Client    | RCTTCPClient          | tcpc://{hostname}:{port}          |
+
+        Args:
+            spec (str): String specification of desired transport
+
+        Raises:
+            RuntimeError: Unrecognized transport
+
+        Returns:
+            RCTAbstractTransport: Created transport
+        """
+        transport_map: Dict[ParseResult, Callable[[ParseResult], RCTAbstractTransport]] = {
+            'udps': cls.__create_udpserver,
+            'udpc': cls.__create_udpclient,
+            'tcpc': cls.__create_tcpclient,
+            'tcps': cls.__create_tcpserver,
+            'serial': cls.__create_serial,
+        }
+        result = urlparse(spec)
+        if result.scheme not in transport_map:
+            raise RuntimeError(f'Unrecognized transport {result.scheme}')
+        return transport_map[result.scheme](result)
+
+    @classmethod
+    def __create_udpclient(cls, spec: ParseResult) -> RCTUDPClient:
+        raise NotImplementedError
+
+    @classmethod
+    def __create_udpserver(cls, spec: ParseResult) -> RCTUDPServer:
+        raise NotImplementedError
+
+    @classmethod
+    def __create_tcpclient(cls, spec: ParseResult) -> RCTTCPClient:
+        return RCTTCPClient(port=spec.port, addr=spec.netloc)
+
+    @classmethod
+    def __create_tcpserver(cls, spec: ParseResult) -> RCTTCPConnection:
+        raise NotImplementedError
+
+    @classmethod
+    def __create_serial(cls, spec: ParseResult) -> RCTSerialTransport:
+        schema = Schema({
+            'baud': int
+        })
+        params = schema.validate(parse_qs(spec.query))
+        return RCTSerialTransport(spec.path, baudrate=params['baud'])
