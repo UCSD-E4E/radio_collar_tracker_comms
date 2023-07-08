@@ -460,13 +460,14 @@ class RCTSerialTransport(RCTAbstractTransport):
     Serial Transport
     No client/server distinction
     '''
-    def __init__(self, port: str) -> None:
+    def __init__(self, port: str, *, baudrate: int = 115200) -> None:
         '''
         Constructor for an RCTSerialTransport
         :param port: port to be used in underlying socket connection
         '''
         self.__port = port
         self.__serial: Optional[serial.Serial] = None
+        self.__baudrate = baudrate
 
     @property
     def port_name(self) -> str:
@@ -482,7 +483,7 @@ class RCTSerialTransport(RCTAbstractTransport):
         Open the serial port.
         '''
         if self.__serial is None:
-            self.__serial = serial.Serial(self.__port, baudrate=115200)
+            self.__serial = serial.Serial(self.__port, baudrate=self.__baudrate)
             if hasattr(self.__serial, 'set_buffer_size'):
                 self.__serial.set_buffer_size(rx_size=65536)
         if not self.__serial.isOpen():
