@@ -10,11 +10,11 @@ import socket
 import threading
 import time
 import types
-from typing import Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import ParseResult, parse_qs, urlparse
 
 import serial
-from schema import Schema, Or
+from schema import Or, Schema
 
 
 class RCTAbstractTransport(abc.ABC):
@@ -539,6 +539,23 @@ class RCTTransportFactory:
             RCTAbstractTransport: Created transport
         """
         logger = logging.getLogger('Transport Factory')
+        logger.debug('Parsing %s', spec)
+        result, factory = cls.parse_spec(spec)
+        logger.info('Recognized scheme %s pointed towards %s', result.scheme, result.netloc)
+        return factory(result)
+
+    @classmethod
+    def parse_spec(cls, spec: str) -> \
+            Tuple[ParseResult, Callable[[ParseResult], RCTAbstractTransport]]:
+        """Parses the specified spec
+
+        Raises:
+            RuntimeError: Unrecognized schema
+
+        Returns:
+            Tuple[ParseResult, Callable[[ParseResult], RCTAbstractTransport]]: Parse result and
+            factory function
+        """
         transport_map: Dict[ParseResult, Callable[[ParseResult], RCTAbstractTransport]] = {
             'udps': cls.__create_udpserver,
             'udpc': cls.__create_udpclient,
@@ -546,12 +563,11 @@ class RCTTransportFactory:
             'tcps': cls.__create_tcpserver,
             'serial': cls.__create_serial,
         }
-        logger.debug('Parsing %s', spec)
         result = urlparse(spec)
         if result.scheme not in transport_map:
             raise RuntimeError(f'Unrecognized transport {result.scheme}')
-        logger.info('Recognized scheme %s pointed towards %s', result.scheme, result.netloc)
-        return transport_map[result.scheme](result)
+        factory = transport_map[result.scheme]
+        return result,factory
 
     @classmethod
     def __create_udpclient(cls, spec: ParseResult) -> RCTUDPClient:
@@ -571,8 +587,30 @@ class RCTTransportFactory:
 
     @classmethod
     def __create_serial(cls, spec: ParseResult) -> RCTSerialTransport:
+        args = cls.extract_serial_args(spec)
+        return RCTSerialTransport(**args)
+
+    @classmethod
+    def extract_serial_args(cls, spec: ParseResult) -> Dict[str, Any]:
+        """Extracts the serial arguments from the specified spec string
+
+        Args:
+            spec (ParseResult): Transport specification
+
+        Raises:
+            RuntimeError: Empty device
+
+        Returns:
+            Dict[str, Any]: Serial Transport args
+        """
         schema = Schema({
             'baud': [Or(int, str)]
         })
         params = schema.validate(parse_qs(spec.query))
-        return RCTSerialTransport(spec.path, baudrate=int(params['baud'][0]))
+        args = {
+            'port': spec.path,
+            'baudrate': int(params['baud'][0])
+        }
+        if args['port'] == '':
+            raise RuntimeError(f'Unknown device {spec.path}')
+        return args
