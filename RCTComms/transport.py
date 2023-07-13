@@ -538,6 +538,7 @@ class RCTTransportFactory:
         Returns:
             RCTAbstractTransport: Created transport
         """
+        logger = logging.getLogger('Transport Factory')
         transport_map: Dict[ParseResult, Callable[[ParseResult], RCTAbstractTransport]] = {
             'udps': cls.__create_udpserver,
             'udpc': cls.__create_udpclient,
@@ -545,9 +546,11 @@ class RCTTransportFactory:
             'tcps': cls.__create_tcpserver,
             'serial': cls.__create_serial,
         }
+        logger.debug('Parsing %s', spec)
         result = urlparse(spec)
         if result.scheme not in transport_map:
             raise RuntimeError(f'Unrecognized transport {result.scheme}')
+        logger.info('Recognized scheme %s pointed towards %s', result.scheme, result.netloc)
         return transport_map[result.scheme](result)
 
     @classmethod
