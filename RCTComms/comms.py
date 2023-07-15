@@ -962,16 +962,18 @@ class gcsComms:
         '''
         if timeout is None:
             timeout = self.GC_HeartbeatWatchdogTime
+        self.__log.debug('Waiting %d s for heartbeats', timeout)
         for _ in range(timeout):
             try:
                 data, addr = self.sock.receive(1024, 1)
                 if data is None:
+                    self.__log.warning('Received None from transport, assuming disconnected')
                     self.__disconnected()
                     break
                 packets = self.__parser.parseBytes(data)
                 for packet in packets:
+                    self.__log.info("Received %s", type(packet).__name__)
                     if isinstance(packet, rctHeartBeatPacket):
-                        self.__log.info("Received heartbeat %s" % (packet))
                         self.__lastHeartbeat = dt.datetime.now()
                         return addr, packets
             except TimeoutError:
