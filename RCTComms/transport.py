@@ -438,6 +438,8 @@ class RCTSerialTransport(RCTAbstractTransport):
         self.__port = port
         self.__serial: Optional[serial.Serial] = None
         self.__baudrate = baudrate
+        self.__log = logging.getLogger(port)
+        self.__log.setLevel(logging.WARNING)
 
     @property
     def port_name(self) -> str:
@@ -458,6 +460,7 @@ class RCTSerialTransport(RCTAbstractTransport):
                 self.__serial.set_buffer_size(rx_size=65536)
         if not self.__serial.isOpen():
             self.__serial.open()
+        self.__log.info('Opened')
 
     def receive(self, buffer_len: int, timeout: int=None) -> Tuple[bytes, str]:
         '''
@@ -469,15 +472,16 @@ class RCTSerialTransport(RCTAbstractTransport):
         :return data, sender: Tuple containing the bytes received (data) and the
                 machine which sent that data (sender)
         '''
+        self.__log.debug('Started rx')
         if not self.__serial.isOpen():
             raise RuntimeError
 
         self.__serial.timeout = timeout
-        available = self.__serial.inWaiting()
-        if available < buffer_len:
-            data = self.__serial.read(available)
-        else:
-            data = self.__serial.read(buffer_len)
+        self.__log.debug('Set timeout to %d', self.__serial.timeout)
+        to_read = buffer_len
+        self.__log.debug('Reading %d bytes', to_read)
+        data = self.__serial.read(to_read)
+        self.__log.debug('Got %d bytes', len(data))
 
         if len(data) == 0:
             raise TimeoutError
