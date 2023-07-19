@@ -1,101 +1,24 @@
 import itertools
 import queue
-import socket
-import threading
 import time
-from dataclasses import dataclass
 from os import urandom
-from random import randint, random, randrange, seed
+from random import randint, random, seed
 from typing import Any, Dict, List, Tuple, Union
 
 import pytest
+from conftest import CommsPair
 
-from RCTComms.comms import (EVENTS, OPTIONS_SCOPE, gcsComms, mavComms,
-                            rctACKCommand, rctExceptionPacket,
+from RCTComms.comms import (EVENTS, rctACKCommand, rctExceptionPacket,
                             rctFrequenciesPacket, rctGETFCommand,
                             rctGETOPTCommand, rctHeartBeatPacket,
                             rctOptionsPacket, rctPingPacket, rctSETFCommand,
                             rctSETOPTCommand, rctSTARTCommand, rctSTOPCommand,
                             rctUPGRADECommand, rctUpgradePacket,
                             rctUpgradeStatusPacket, rctVehiclePacket)
-from RCTComms.transport import RCTTCPClient, RCTTCPServer
-
-
-@dataclass
-class CommsPair:
-    """Pair of MAV/GCS comms
-    """
-    gcs: gcsComms
-    mav: mavComms
-
-def start_gcs(server: RCTTCPServer):
-    """GCS Start Logic
-
-    Args:
-        gcs (gcsComms): GCS Object
-    """
-    server.open()
-
-def start_mav(mav: mavComms, run: threading.Event):
-    """MAV Start Logics
-
-    Args:
-        mav (mavComms): MAV Ovject
-    """
-    mav.start()
-    while run.is_set():
-        mav.sendToGCS(rctHeartBeatPacket(0, 0, 0, 0, 0))
-        time.sleep(1)
-
-def server_connection_handler(connection, id):
-    return
-
-def server_disconnect_handler():
-    return
-
-@pytest.fixture(name='comms')
-def create_comms() -> CommsPair:
-    """Creates a Comms Pair
-
-    Raises:
-        TimeoutError: Failed to setup pair
-
-    Returns:
-        CommsPair: Comms Pair
-
-    Yields:
-        Iterator[CommsPair]: _description_
-    """
-    addr = '127.0.0.1'
-    with socket.socket() as sock:
-        sock.bind(('', 0))
-        port = sock.getsockname()[1]
-    server = RCTTCPServer(port, server_connection_handler)
-    client = RCTTCPClient(port, addr)
-    mav = mavComms(client)
-
-    mav_run = threading.Event()
-    mav_run.set()
-
-    server_start = threading.Thread(target=start_gcs, args=(server,), name='gcs_start')
-    mav_start = threading.Thread(target=start_mav, args=(mav,mav_run), name='mav_start')
-
-    server_start.start()
-    time.sleep(0.5)
-    mav_start.start()
-    server_start.join(timeout=1)
-
-    while len(server.simList) < 1:
-        continue
-    gcs = gcsComms(server.simList[0], server_disconnect_handler)
-    gcs.start()
-
-    yield CommsPair(gcs, mav)
-    mav_run.clear()
-    mav_start.join(timeout=2)
-    mav.stop()
-    gcs.stop()
-    server.close()
+from RCTComms.options import (BASE_OPTIONS, ENG_OPTIONS, EXP_OPTIONS, Options,
+                              base_options_keywords,
+                              engineering_options_keywords,
+                              expert_options_keywords, option_param_table)
 
 
 @pytest.mark.timeout(10)
@@ -175,12 +98,12 @@ def test_frequencies(comms: CommsPair, n_freqs: int):
 @pytest.mark.parametrize('opt_scope',
     [
          # pylint: disable=protected-access
-        (OPTIONS_SCOPE.BASE_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords),
-        (OPTIONS_SCOPE.EXP_OPTIONS,
-            OPTIONS_SCOPE._baseOptionKeywords + OPTIONS_SCOPE._expOptionKeywords),
-        (OPTIONS_SCOPE.ENG_OPTIONS,
-            OPTIONS_SCOPE._baseOptionKeywords + OPTIONS_SCOPE._expOptionKeywords +\
-            OPTIONS_SCOPE._engOptionKeywords)
+        (BASE_OPTIONS, base_options_keywords),
+        (EXP_OPTIONS,
+            base_options_keywords + expert_options_keywords),
+        (ENG_OPTIONS,
+            base_options_keywords + expert_options_keywords +\
+            engineering_options_keywords)
     ])
 def test_options(comms: CommsPair, opt_scope: Tuple[int, List[str]]):
     """Test sending options
@@ -201,10 +124,11 @@ def test_options(comms: CommsPair, opt_scope: Tuple[int, List[str]]):
 
     populate_params(options, opt_scope[1])
 
-    opt = rctOptionsPacket(scope, **options)
+    opt = rctOptionsPacket(scope, options)
     comms.gcs.sendPacket(opt)
+    time.sleep(1)
 
-    rx_ = pkt_queue.get(True, timeout=1)
+    rx_ = pkt_queue.get(timeout=1)
 
     assert rx_ == opt
     for key in opt_scope[1]:
@@ -220,21 +144,23 @@ def verify_option_key(opt: Union[rctOptionsPacket, rctSETOPTCommand], rx: Union[
     else:
         raise NotImplementedError(type(rx.options[key]))
 
-def populate_params(options: Dict[str, Any], params: List[str]):
+def populate_params(options: Dict[str, Any], params: List[Options]):
     for kw in params:
-        kw_param = OPTIONS_SCOPE.kw_types[kw]
-        if "<L" == kw_param.fmt:
+        kw_param = option_param_table[kw]
+        if "<L" == kw_param.format_str:
             options[kw] = randint(0, 2**32 - 1)
-        elif "<B" == kw_param.fmt:
+        elif "<B" == kw_param.format_str:
             options[kw] = randint(0, 2**8 - 1)
-        elif "<f" == kw_param.fmt:
+        elif "<f" == kw_param.format_str:
             options[kw] = random() * 100
-        elif 's' == kw_param.fmt:
+        elif 's' == kw_param.format_str:
             options[kw] = f'{random() * 100}'
-        elif '<?' == kw_param.fmt:
+        elif '<?' == kw_param.format_str:
             options[kw] = random() > 0.5
+        elif '' == kw_param.format_str:
+            continue
         else:
-            raise NotImplementedError(kw_param.fmt)
+            raise NotImplementedError(kw_param.format_str)
 
 @pytest.mark.timeout(10)
 def test_upgradeStatusPacket(comms: CommsPair):
@@ -448,9 +374,10 @@ def test_getOptCmd(comms: CommsPair):
 @pytest.mark.timeout(10)
 @pytest.mark.parametrize('opt_scope',
     [
-        (OPTIONS_SCOPE.BASE_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords),
-        (OPTIONS_SCOPE.EXP_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords + OPTIONS_SCOPE._expOptionKeywords),
-        (OPTIONS_SCOPE.ENG_OPTIONS, OPTIONS_SCOPE._baseOptionKeywords + OPTIONS_SCOPE._expOptionKeywords + OPTIONS_SCOPE._engOptionKeywords)
+        (BASE_OPTIONS, base_options_keywords),
+        (EXP_OPTIONS, base_options_keywords + expert_options_keywords),
+        (ENG_OPTIONS, base_options_keywords + expert_options_keywords +
+         engineering_options_keywords)
     ])
 def test_setOptCmd(comms: CommsPair, opt_scope):
     seed(0)
@@ -465,7 +392,7 @@ def test_setOptCmd(comms: CommsPair, opt_scope):
 
     populate_params(options, opt_scope[1])
 
-    opt = rctSETOPTCommand(scope, **options)
+    opt = rctSETOPTCommand(scope, options)
     comms.gcs.sendPacket(opt)
 
     rx = pkt_queue.get(True, timeout=1)

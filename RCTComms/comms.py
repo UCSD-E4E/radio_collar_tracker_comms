@@ -49,11 +49,16 @@ import struct
 import threading
 import time
 import traceback
-from dataclasses import dataclass
-from typing import (Any, Callable, Dict, Iterable, List, Optional, Tuple, Type,
-                    Union)
+from typing import Any, Callable, Dict, List, Optional, Type
+
 from deprecated import deprecated
+
 import RCTComms.transport
+from RCTComms.options import (BASE_OPTIONS, ENG_OPTIONS, EXP_OPTIONS, Options,
+                              base_options_keywords,
+                              engineering_options_keywords,
+                              expert_options_keywords, option_param_table)
+
 
 class PACKET_CLASS(enum.Enum):
     '''
@@ -109,64 +114,6 @@ class COMMAND_ID(enum.Enum):
     START = 0x07
     STOP = 0x09
     UPGRADE = 0x0B
-
-
-class OPTIONS_SCOPE:
-    '''
-    Options Packet Values
-    '''
-
-    ## Base Options
-    BASE_OPTIONS = 0x00
-    _baseOptionKeywords = ['SDR_center_freq', 'SDR_sampling_freq', 'SDR_gain']
-
-    ## Expert Options
-    EXP_OPTIONS = 0x01
-    _expOptionKeywords = ['DSP_ping_width', 'DSP_ping_snr',
-                          'DSP_ping_max', 'DSP_ping_min', 'SYS_output_dir']
-
-    ## Engineering Options
-    ENG_OPTIONS = 0xFF
-    _engOptionKeywords = ['GPS_mode',
-                          'GPS_baud', 'GPS_device', 'SYS_autostart']
-
-    @dataclass
-    class KWParams:
-        kw_type: List[Type]
-        fmt: str
-        length: int
-
-    kw_types: Dict[str, KWParams] = {
-        'SDR_center_freq': KWParams([int], '<L', 4),
-        'SDR_sampling_freq': KWParams([int], '<L', 4),
-        'SDR_gain': KWParams([int, float], '<f', 4),
-        'DSP_ping_width': KWParams([int, float], '<f', 4),
-        'DSP_ping_snr': KWParams([int, float], '<f', 4),
-        'DSP_ping_max': KWParams([int, float], '<f', 4),
-        'DSP_ping_min': KWParams([int, float], '<f', 4),
-        'SYS_output_dir': KWParams([str], 's', 2),
-        'GPS_mode': KWParams([int], '<B', 1),
-        'GPS_baud': KWParams([int], '<L', 4),
-        'GPS_device': KWParams([str], 's', 2),
-        'SYS_autostart': KWParams([bool], '<?', 1)
-    }
-
-    ## Keyword Types.  The associated tuples are python type, struct pack format
-    # character, and number of bytes.
-    _keywordTypes: Dict[str, Tuple[Any, str, int]] = {
-        'SDR_center_freq': (int, '<L', 4),
-        'SDR_sampling_freq': (int, '<L', 4),
-        'SDR_gain': ((int, float), '<f', 4),
-        'DSP_ping_width': ((int, float), '<f', 4),
-        'DSP_ping_snr': ((int, float), '<f', 4),
-        'DSP_ping_max': ((int, float), '<f', 4),
-        'DSP_ping_min': ((int, float), '<f', 4),
-        'SYS_output_dir': (str, 's', 2),
-        'GPS_mode': (int, '<B', 1),
-        'GPS_baud': (int, '<L', 4),
-        'GPS_device': (str, 's', 2),
-        'SYS_autostart': (bool, '<?', 1)
-    }
 
 
 class rctBinaryPacket:
@@ -389,33 +336,36 @@ class rctFrequenciesPacket(rctBinaryPacket):
 
 class rctOptionsPacket(rctBinaryPacket):
 
-    def __init__(self, scope: int, **kwargs):
-        if scope == OPTIONS_SCOPE.BASE_OPTIONS:
-            acceptedKeywords = OPTIONS_SCOPE._baseOptionKeywords
-        elif scope == OPTIONS_SCOPE.EXP_OPTIONS:
-            acceptedKeywords = OPTIONS_SCOPE._baseOptionKeywords + \
-                OPTIONS_SCOPE._expOptionKeywords
-        elif scope == OPTIONS_SCOPE.ENG_OPTIONS:
-            acceptedKeywords = OPTIONS_SCOPE._baseOptionKeywords + \
-                OPTIONS_SCOPE._expOptionKeywords + OPTIONS_SCOPE._engOptionKeywords
+    def __init__(self, scope: int, kwargs: Dict[Options: Any]):
+        if scope == BASE_OPTIONS:
+            accepted_kw = base_options_keywords
+        elif scope == EXP_OPTIONS:
+            accepted_kw = base_options_keywords + \
+                expert_options_keywords
+        elif scope == ENG_OPTIONS:
+            accepted_kw = base_options_keywords + \
+                expert_options_keywords + engineering_options_keywords
         else:
             raise RuntimeError('Unrecognized scope')
 
-        self._pclass = 0x02
-        self._pid = 0x02
-        self._payload = struct.pack('<BB', 0x01, scope)
+        pclass = 0x02
+        pid = 0x02
+        payload = struct.pack('<BB', 0x01, scope)
         self.options = {}
         self.scope = scope
-        for keyword in acceptedKeywords:
-            assert(isinstance(kwargs[keyword],
-                              OPTIONS_SCOPE._keywordTypes[keyword][0]))
+        for keyword in accepted_kw:
+            option_param = option_param_table[keyword]
+
+            assert isinstance(kwargs[keyword], option_param.type_list)
+
             self.options[keyword] = kwargs[keyword]
-            if OPTIONS_SCOPE._keywordTypes[keyword][1] != 's':
-                self._payload += struct.pack(
-                    OPTIONS_SCOPE._keywordTypes[keyword][1], kwargs[keyword])
+            if option_param.format_str != 's':
+                payload += struct.pack(option_param.format_str,
+                                             kwargs[keyword])
             else:
-                self._payload += struct.pack('<H', len(kwargs[keyword]))
-                self._payload += kwargs[keyword].encode('ascii')
+                payload += struct.pack('<H', len(kwargs[keyword]))
+                payload += kwargs[keyword].encode('ascii')
+        super().__init__(payload=payload, packetClass=pclass, packetID=pid)
 
     @classmethod
     def matches(cls, packetClass: int, packetID: int):
@@ -431,37 +381,28 @@ class rctOptionsPacket(rctBinaryPacket):
         _, scope = struct.unpack('<BB', payload[0x0000:0x0002])
         idx = 0x0002
         options = {}
-        if scope >= OPTIONS_SCOPE.BASE_OPTIONS:
-            for keyword in OPTIONS_SCOPE._baseOptionKeywords:
-                fmt = OPTIONS_SCOPE._keywordTypes[keyword]
-                options[keyword], = struct.unpack(
-                    fmt[1], payload[idx:idx + fmt[2]])
-                idx += fmt[2]
-        if scope >= OPTIONS_SCOPE.EXP_OPTIONS:
-            for keyword in OPTIONS_SCOPE._expOptionKeywords:
-                fmt = OPTIONS_SCOPE._keywordTypes[keyword]
-                if fmt[1] != 's':
-                    options[keyword], = struct.unpack(
-                        fmt[1], payload[idx:idx + fmt[2]])
-                    idx += fmt[2]
-                else:
-                    strlen, = struct.unpack('<H', payload[idx:idx + 2])
-                    options[keyword] = payload[idx +
-                                               2:idx + strlen + 2].decode()
-                    idx += 2 + strlen
-        if scope >= OPTIONS_SCOPE.ENG_OPTIONS:
-            for keyword in OPTIONS_SCOPE._engOptionKeywords:
-                fmt = OPTIONS_SCOPE._keywordTypes[keyword]
-                if fmt[1] != 's':
-                    options[keyword], = struct.unpack(
-                        fmt[1], payload[idx:idx + fmt[2]])
-                    idx += fmt[2]
-                else:
-                    strlen, = struct.unpack('<H', payload[idx:idx + 2])
-                    options[keyword] = payload[idx +
-                                               2:idx + strlen + 2].decode()
-                    idx += 2 + strlen
-        return rctOptionsPacket(scope, **options)
+        if scope >= BASE_OPTIONS:
+            for keyword in base_options_keywords:
+                option_params = option_param_table[keyword]
+                options[keyword], idx = option_params.unpack_from(
+                    buffer=payload,
+                    offset=idx
+                )
+        if scope >= EXP_OPTIONS:
+            for keyword in expert_options_keywords:
+                option_params = option_param_table[keyword]
+                options[keyword], idx = option_params.unpack_from(
+                    buffer=payload,
+                    offset=idx
+                )
+        if scope >= ENG_OPTIONS:
+            for keyword in engineering_options_keywords:
+                option_params = option_param_table[keyword]
+                options[keyword], idx = option_params.unpack_from(
+                    buffer=payload,
+                    offset=idx
+                )
+        return rctOptionsPacket(scope, options)
 
 
 class rctUpgradeStatusPacket(rctBinaryPacket):
@@ -684,34 +625,29 @@ class rctGETOPTCommand(rctBinaryPacket):
 
 class rctSETOPTCommand(rctBinaryPacket):
 
-    def __init__(self, scope: int, **kwargs):
-        acceptedKeywords: List[str] = []
-        if scope >= OPTIONS_SCOPE.BASE_OPTIONS:
-            acceptedKeywords = OPTIONS_SCOPE._baseOptionKeywords
-        if scope >= OPTIONS_SCOPE.EXP_OPTIONS:
-            acceptedKeywords = OPTIONS_SCOPE._baseOptionKeywords + \
-                OPTIONS_SCOPE._expOptionKeywords
-        if scope >= OPTIONS_SCOPE.ENG_OPTIONS:
-            acceptedKeywords = OPTIONS_SCOPE._baseOptionKeywords + \
-                OPTIONS_SCOPE._expOptionKeywords + OPTIONS_SCOPE._engOptionKeywords
-        if acceptedKeywords == []:
+    def __init__(self, scope: int, kwargs: Dict[Options, Any]):
+        accepted_kw: List[str] = []
+        if scope >= BASE_OPTIONS:
+            accepted_kw = base_options_keywords
+        if scope >= EXP_OPTIONS:
+            accepted_kw = base_options_keywords + \
+                expert_options_keywords
+        if scope >= ENG_OPTIONS:
+            accepted_kw = base_options_keywords + \
+                expert_options_keywords + engineering_options_keywords
+        if accepted_kw == []:
             raise RuntimeError("Invalid scope")
 
-        self._pclass = 0x05
-        self._pid = 0x05
-        self._payload = struct.pack('<BB', 0x01, scope)
+        pclass = 0x05
+        pid = 0x05
+        payload = struct.pack('<BB', 0x01, scope)
         self.options = {}
         self.scope = scope
-        for keyword in acceptedKeywords:
-            assert(isinstance(kwargs[keyword],
-                              OPTIONS_SCOPE._keywordTypes[keyword][0]))
+        for keyword in accepted_kw:
+            option_param = option_param_table[keyword]
+            payload += option_param.pack(kwargs[keyword])
             self.options[keyword] = kwargs[keyword]
-            if OPTIONS_SCOPE._keywordTypes[keyword][1] != 's':
-                self._payload += struct.pack(
-                    OPTIONS_SCOPE._keywordTypes[keyword][1], kwargs[keyword])
-            else:
-                self._payload += struct.pack('<H', len(kwargs[keyword]))
-                self._payload += kwargs[keyword].encode('ascii')
+        super().__init__(payload=payload, packetClass=pclass, packetID=pid)
 
     @classmethod
     def matches(cls, packetClass: int, packetID: int):
@@ -727,37 +663,19 @@ class rctSETOPTCommand(rctBinaryPacket):
         _, scope = struct.unpack('<BB', payload[0x0000:0x0002])
         idx = 0x0002
         options = {}
-        if scope >= OPTIONS_SCOPE.BASE_OPTIONS:
-            for keyword in OPTIONS_SCOPE._baseOptionKeywords:
-                fmt = OPTIONS_SCOPE._keywordTypes[keyword]
-                options[keyword], = struct.unpack(
-                    fmt[1], payload[idx:idx + fmt[2]])
-                idx += fmt[2]
-        if scope >= OPTIONS_SCOPE.EXP_OPTIONS:
-            for keyword in OPTIONS_SCOPE._expOptionKeywords:
-                fmt = OPTIONS_SCOPE._keywordTypes[keyword]
-                if fmt[1] != 's':
-                    options[keyword], = struct.unpack(
-                        fmt[1], payload[idx:idx + fmt[2]])
-                    idx += fmt[2]
-                else:
-                    strlen, = struct.unpack('<H', payload[idx:idx + 2])
-                    options[keyword] = payload[idx +
-                                               2:idx + strlen + 2].decode()
-                    idx += 2 + strlen
-        if scope >= OPTIONS_SCOPE.ENG_OPTIONS:
-            for keyword in OPTIONS_SCOPE._engOptionKeywords:
-                fmt = OPTIONS_SCOPE._keywordTypes[keyword]
-                if fmt[1] != 's':
-                    options[keyword], = struct.unpack(
-                        fmt[1], payload[idx:idx + fmt[2]])
-                    idx += fmt[2]
-                else:
-                    strlen, = struct.unpack('<H', payload[idx:idx + 2])
-                    options[keyword] = payload[idx +
-                                               2:idx + strlen + 2].decode()
-                    idx += 2 + strlen
-        return rctSETOPTCommand(scope, **options)
+        if scope >= BASE_OPTIONS:
+            for keyword in base_options_keywords:
+                option_param = option_param_table[keyword]
+                options[keyword], idx = option_param.unpack_from(payload, idx)
+        if scope >= EXP_OPTIONS:
+            for keyword in expert_options_keywords:
+                option_param = option_param_table[keyword]
+                options[keyword], idx = option_param.unpack_from(payload, idx)
+        if scope >= ENG_OPTIONS:
+            for keyword in engineering_options_keywords:
+                option_param = option_param_table[keyword]
+                options[keyword], idx = option_param.unpack_from(payload, idx)
+        return rctSETOPTCommand(scope, options)
 
 
 class rctSTARTCommand(rctBinaryPacket):
@@ -1011,9 +929,10 @@ class gcsComms:
         while self.HS_run:
             try:
                 data, addr = self.sock.receive(self.__BUFFER_LEN, 1)
-                self.__log.info("Received: %s", data.hex(' ', -2))
+                if data:
+                    self.__log.info("Received: %s", data.hex(' ', -2))
             except TimeoutError:
-                pass
+                continue
             if not data:
                 self.__disconnected()
                 break
@@ -1191,7 +1110,6 @@ class mavComms:
 
     def sendPacket(self, packet: rctBinaryPacket, dest: Optional[str]):
         self.port_open_event.wait(timeout=5)
-            return
         self.__log.info('Send: %s as %s', type(packet).__name__, packet)
         self.__port.send(packet.to_bytes(), dest)
 
