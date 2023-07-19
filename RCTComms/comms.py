@@ -894,6 +894,7 @@ class rctBinaryPacketFactory:
             if binascii.crc_hqx(self.__buffer, 0xFFFF) != 0:
                 self.__log.error('Invalid checksum for buffer %s',
                                  self.__buffer.hex(' ', -2))
+                self.__state = self.State.FIND_SYNC
                 raise ChecksumError(self.__buffer)
             packetID, = struct.unpack('>H', self.__buffer[0x0002:0x0004])
             self.__state = self.State.FIND_SYNC
