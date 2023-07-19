@@ -1204,9 +1204,20 @@ class mavComms:
     def sendVehicle(self, vehicle: rctVehiclePacket):
         self.sendPacket(vehicle, None)
 
-    def sendException(self, exception: str, traceback: str):
-        packet = rctExceptionPacket(exception, traceback)
-        self.sendToAll(packet)
+    def send_exception(self, exception: str, tb_: str):
+        """Sends an exception message
+
+        Args:
+            exception (str): Exception message
+            tb_ (str): Traceback info
+        """
+        packet = rctExceptionPacket(exception, tb_)
+        try:
+            self.sendToAll(packet)
+        except Exception: # pylint: disable=broad-except
+            # This is only called in an exception handler - it cannot be allowed
+            # to raise another exception!
+            self.__log.exception('Failed to send exception!')
 
     def __receiver(self):
         if not self.__port.isOpen():
@@ -1219,15 +1230,15 @@ class mavComms:
             except TimeoutError:
                 continue
             except Exception as exc:
-                self.sendException(str(exc), traceback.format_exc())
+                self.send_exception(str(exc), traceback.format_exc())
                 self.__log.exception('Failed to receive packet: %s', exc)
                 continue
 
             try:
                 packets = self.__parser.parseBytes(data)
             except Exception as exc:
-                self.sendException(str(exc), traceback=traceback.format_exc())
                 self.__log.exception('Failed to parse packets: %s', exc)
+                self.send_exception(str(exc), tb_=traceback.format_exc())
                 continue
 
             try:
@@ -1245,7 +1256,7 @@ class mavComms:
                             'addr': addr
                         })
             except Exception as exc:
-                self.sendException(str(exc), traceback=traceback.format_exc())
+                self.send_exception(str(exc), tb_=traceback.format_exc())
                 self.__log.exception('Failed to handle packets: %s', exc)
 
     def execute_cb(self, event_value: int, kwargs):
