@@ -641,7 +641,7 @@ class rctSETOPTCommand(rctBinaryPacket):
         pclass = 0x05
         pid = 0x05
         payload = struct.pack('<BB', 0x01, scope)
-        self.options = {}
+        self.options: Dict[Options, Any] = {}
         self.scope = scope
         for keyword in accepted_kw:
             option_param = option_param_table[keyword]
