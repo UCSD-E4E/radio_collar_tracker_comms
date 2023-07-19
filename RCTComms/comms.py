@@ -1011,10 +1011,11 @@ class gcsComms:
                 if not data:
                     self.__disconnected()
                     break
-                self.__log.info("Received: %s" % data.hex())
+                self.__log.debug("Received: %s", data.hex(' ', -2))
 
                 packets = self.__parser.parseBytes(data)
                 for packet in packets:
+                    self.__log.info('Received %s', type(packet).__name__)
                     packetCode = packet.getClassIDCode()
                     try:
                         for callback in self.__packetMap[packetCode]:
