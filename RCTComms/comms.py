@@ -1262,7 +1262,7 @@ class mavComms:
     def execute_cb(self, event_value: int, kwargs):
         cb_fns = self.__packetMap[event_value]
         if len(cb_fns) == 0:
-            self.__log.info('Empty callback list for %d', event_value)
+            self.__log.info('Empty callback list for %s', EVENTS(event_value))
         for cb_ in cb_fns:
             self.__log.debug('Executing %s', cb_.__name__)
             cb_(**kwargs)
