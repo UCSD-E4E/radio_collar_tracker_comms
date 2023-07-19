@@ -944,6 +944,9 @@ class gcsComms:
         self.__disconnected = disconnected
 
         self.__receiverThread: Optional[threading.Thread] = None
+        self.__hb_thread = threading.Thread(target=self.heartbeat_monitor,
+                                            name='Heartbeat Monitor',
+                                            daemon=True)
         self.__log.info('RTC gcsComms created')
         self.HS_run = False
         self.__mavIP: Optional[str] = None
@@ -1008,36 +1011,45 @@ class gcsComms:
         while self.HS_run:
             try:
                 data, addr = self.sock.receive(self.__BUFFER_LEN, 1)
-                if not data:
-                    self.__disconnected()
-                    break
-                self.__log.debug("Received: %s", data.hex(' ', -2))
-
-                packets = self.__parser.parseBytes(data)
-                for packet in packets:
-                    self.__log.info('Received %s', type(packet).__name__)
-                    packetCode = packet.getClassIDCode()
-                    try:
-                        for callback in self.__packetMap[packetCode]:
-                            callback(packet=packet, addr=addr)
-                    except KeyError:
-                        for callback in self.__packetMap[EVENTS.GENERAL_UNKNOWN.value]:
-                            callback(packet=packet, addr=addr)
-                    except Exception as e:
-                        self.__log.error("Exception %s: %s" %
-                                         (type(e), str(e)))
-                        self.__log.error("Traceback: %s" %
-                                         (traceback.format_exc()))
-
-                        for callback in self.__packetMap[EVENTS.GENERAL_EXCEPTION.value]:
-                            callback(packet=packet, addr=addr)
-
+                self.__log.info("Received: %s", data.hex(' ', -2))
             except TimeoutError:
                 pass
+            if not data:
+                self.__disconnected()
+                break
 
-            if (dt.datetime.now() - self.__lastHeartbeat).total_seconds() > self.GC_HeartbeatWatchdogTime:
-                self.__log.warning(
-                    "No heartbeats, last heartbeat at %s" % self.__lastHeartbeat)
+            try:
+                packets = self.__parser.parseBytes(data)
+            except Exception as exc:
+                self.__log.exception('Failed to parse packets: %s', exc)
+                raise exc
+
+            for packet in packets:
+                self.__log.info('Received %s', type(packet).__name__)
+                packet_code = packet.getClassIDCode()
+                try:
+                    for callback in self.__packetMap[packet_code]:
+                        callback(packet=packet, addr=addr)
+                except KeyError:
+                    for callback in self.__packetMap[EVENTS.GENERAL_UNKNOWN.value]:
+                        callback(packet=packet, addr=addr)
+                except Exception as exc:
+                    self.__log.exception('Failed to handle packet')
+                    for callback in self.__packetMap[EVENTS.GENERAL_EXCEPTION.value]:
+                        callback(packet=packet, addr=addr)
+                    raise exc
+
+
+    def heartbeat_monitor(self):
+        """Heartbeat Monitor thread
+        """
+        assert self.__lastHeartbeat is not None
+        while self.HS_run:
+            time.sleep(1)
+            time_since_heartbeat = dt.datetime.now() - self.__lastHeartbeat
+            if time_since_heartbeat.total_seconds() > self.GC_HeartbeatWatchdogTime:
+                self.__log.warning("No heartbeats, last heartbeat at %s",
+                                   self.__lastHeartbeat)
                 for callback in self.__packetMap[EVENTS.GENERAL_NO_HEARTBEAT.value]:
                     callback(packet=None, addr=None)
 
@@ -1064,6 +1076,7 @@ class gcsComms:
         self.HS_run = True
         self.__receiverThread = threading.Thread(target=self.__receiverLoop, name='gcsComms rx')
         self.__receiverThread.start()
+        self.__hb_thread.start()
         self.__log.info('RCT gcsComms started')
 
     def stop(self):
@@ -1074,6 +1087,7 @@ class gcsComms:
         self.HS_run = False
         if self.__receiverThread is not None:
             self.__receiverThread.join(timeout=1)
+        self.__hb_thread.join()
         self.__log.info('RCT gcsComms stopped')
         self.sock.close()
 
@@ -1201,7 +1215,7 @@ class mavComms:
         while self.HS_run is True:
             try:
                 data, addr = self.__port.receive(1024, 1)
-                self.__log.info('Received: %s' % data.hex())
+                self.__log.info('Received: %s', data.hex(' ', -2))
             except TimeoutError:
                 continue
             except Exception as exc:
@@ -1214,10 +1228,11 @@ class mavComms:
             except Exception as exc:
                 self.sendException(str(exc), traceback=traceback.format_exc())
                 self.__log.exception('Failed to parse packets: %s', exc)
+                continue
 
             try:
                 for packet in packets:
-                    print("RX: %s" % packet)
+                    self.__log.info('Received %s', type(packet).__name__)
                     packetCode = packet.getClassIDCode()
                     try:
                         self.execute_cb(packetCode, {
