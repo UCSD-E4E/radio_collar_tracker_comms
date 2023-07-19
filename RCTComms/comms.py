@@ -1266,7 +1266,11 @@ class mavComms:
             self.__log.info('Empty callback list for %s', EVENTS(event_value))
         for cb_ in cb_fns:
             self.__log.debug('Executing %s', cb_.__name__)
-            cb_(**kwargs)
+            try:
+                cb_(**kwargs)
+            except Exception as exc:
+                self.__log.exception('Exception during callback')
+                raise exc
 
     @deprecated
     def registerCallback(self, event: EVENTS, callback: Callable):
