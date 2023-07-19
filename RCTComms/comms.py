@@ -1244,9 +1244,10 @@ class mavComms:
             try:
                 for packet in packets:
                     self.__log.info('Received %s', type(packet).__name__)
-                    packetCode = packet.getClassIDCode()
+                    packet_code = packet.getClassIDCode()
+                    self.__log.debug('Looking for 0x%04x', packet_code)
                     try:
-                        self.execute_cb(packetCode, {
+                        self.execute_cb(packet_code, {
                             'packet': packet,
                             'addr': addr
                         })
