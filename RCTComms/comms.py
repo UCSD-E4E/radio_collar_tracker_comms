@@ -1142,7 +1142,7 @@ class gcsComms:
         :type packet:
         '''
 
-        self.__log.info("Send: %s" % (packet))
+        self.__log.info("Send: %s as %s", type(packet).__name__, packet)
         self.sock.send(packet.to_bytes(), self.__mavIP)
 
 
@@ -1192,7 +1192,7 @@ class mavComms:
     def sendPacket(self, packet: rctBinaryPacket, dest: Optional[str]):
         if not self.port_open_event.is_set():
             return
-        self.__log.info('Send: %s' % (packet))
+        self.__log.info('Send: %s as %s', type(packet).__name__, packet)
         self.__port.send(packet.to_bytes(), dest)
 
     def sendPing(self, ping: rctPingPacket):
