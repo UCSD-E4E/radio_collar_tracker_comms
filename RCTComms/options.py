@@ -14,6 +14,7 @@ class Options(Enum):
     DSP_PING_SNR = 'DSP_ping_snr'
     DSP_PING_MAX = 'DSP_ping_max'
     DSP_PING_MIN = 'DSP_ping_min'
+    GCS_SPEC = 'GCS_spec'
     GPS_BAUD = 'GPS_baud'
     GPS_DEVICE = 'GPS_device'
     GPS_MODE = 'GPS_mode'
@@ -181,6 +182,12 @@ option_param_table = {
         length=4,
         scope_mask=EXP_OPTIONS,
         validation_fn=lambda x: x > 0
+    ),
+    Options.GCS_SPEC: OptionParams(
+        type_list=(str),
+        format_str='s',
+        length=2,
+        scope_mask=ENG_OPTIONS,
     )
 }
 
