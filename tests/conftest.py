@@ -5,7 +5,6 @@ import time
 from dataclasses import dataclass
 from queue import Empty, Queue
 from typing import Tuple
-from unittest.mock import Mock
 
 import pytest
 
