@@ -827,6 +827,13 @@ class EVENTS(enum.Enum):
     GENERAL_EXCEPTION = 0x20000
     GENERAL_UNKNOWN = 0x30000
 
+class ChecksumError(RuntimeError):
+    """Checksum verification error
+    """
+    def __init__(self, packet: bytes, *args: object) -> None:
+        self.packet = packet
+        super().__init__(*args)
+
 class rctBinaryPacketFactory:
     class State(enum.Enum):
         FIND_SYNC = 0
@@ -857,6 +864,7 @@ class rctBinaryPacketFactory:
     def __init__(self):
         self.__state = self.State.FIND_SYNC
         self.__payloadLen = 0
+        self.__log = logging.getLogger('Binary Packet Parser')
 
     def parseByte(self, data: int) -> Optional[rctBinaryPacket]:
         if self.__state == self.State.FIND_SYNC:
@@ -884,7 +892,9 @@ class rctBinaryPacketFactory:
         elif self.__state == self.State.VALIDATE:
             self.__buffer.append(data)
             if binascii.crc_hqx(self.__buffer, 0xFFFF) != 0:
-                raise RuntimeError("Checksum verification failed")
+                self.__log.error('Invalid checksum for buffer %s',
+                                 self.__buffer.hex(' ', -2))
+                raise ChecksumError(self.__buffer)
             packetID, = struct.unpack('>H', self.__buffer[0x0002:0x0004])
             self.__state = self.State.FIND_SYNC
             if packetID not in self.packetMap:
@@ -897,7 +907,11 @@ class rctBinaryPacketFactory:
     def parseBytes(self, data: bytes) -> List[rctBinaryPacket]:
         packets: List[rctBinaryPacket] = []
         for byte in data:
-            retval = self.parseByte(byte)
+            try:
+                retval = self.parseByte(byte)
+            except ChecksumError:
+                # At this point, we are going to simply drop the packet.
+                continue
             if retval is not None:
                 packets.append(retval)
         return packets
