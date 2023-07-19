@@ -52,7 +52,7 @@ import traceback
 from dataclasses import dataclass
 from typing import (Any, Callable, Dict, Iterable, List, Optional, Tuple, Type,
                     Union)
-
+from deprecated import deprecated
 import RCTComms.transport
 
 class PACKET_CLASS(enum.Enum):
@@ -1267,5 +1267,16 @@ class mavComms:
             self.__log.debug('Executing %s', cb_.__name__)
             cb_(**kwargs)
 
-    def registerCallback(self, event: EVENTS, callback):
+    @deprecated
+    def registerCallback(self, event: EVENTS, callback: Callable):
+        self.register_callback(event=event, callback=callback)
+
+    def register_callback(self, event: EVENTS, callback: Callable):
+        """Registers the specified callback
+
+        Args:
+            event (EVENTS): Event to register with
+            callback (Callable): Callback function
+        """
+        self.__log.info('Registering %s to %s', callback.__name__, event.name)
         self.__packetMap[event.value].append(callback)

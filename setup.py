@@ -14,6 +14,7 @@ setup(
     install_requires=[
         'pyserial',
         'schema',
+        'Deprecated',
     ],
     extras_require={
         'dev': [
