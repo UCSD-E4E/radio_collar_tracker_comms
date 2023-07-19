@@ -1190,7 +1190,7 @@ class mavComms:
         self.sendPacket(packet, None)
 
     def sendPacket(self, packet: rctBinaryPacket, dest: Optional[str]):
-        if not self.port_open_event.is_set():
+        self.port_open_event.wait(timeout=5)
             return
         self.__log.info('Send: %s as %s', type(packet).__name__, packet)
         self.__port.send(packet.to_bytes(), dest)
