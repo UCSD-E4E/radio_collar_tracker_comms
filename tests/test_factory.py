@@ -13,7 +13,7 @@ def test_serial():
     if len(available_ports) == 0:
         return
     port_to_use = available_ports[0]
-    spec = f'serial://{port_to_use.name}?baud=57600'
+    spec = f'serial:{port_to_use.name}?baud=57600'
     transport = RCTTransportFactory.create_transport(spec)
     assert isinstance(transport, RCTSerialTransport)
 
@@ -22,7 +22,7 @@ def test_serial():
     ('serial:/dev/ttyUSB0?baud=115200', '/dev/ttyUSB0', 115200),
     ('serial:///dev/ttyUSB0?baud=115200', '/dev/ttyUSB0', 115200),
 ])
-def test_serial_bad_spec_parse(spec: str, device: str, baud: int):
+def test_serial_good_spec_parse(spec: str, device: str, baud: int):
     """Tests serial spec parsing
 
     Args:
