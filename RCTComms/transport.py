@@ -602,6 +602,8 @@ class RCTSerialTransport(RCTAbstractTransport):
                     raise TimeoutError
 
                 return data, self.__port
+        except TimeoutError as exc:
+            raise exc
         except Exception as exc:
             self.__log.exception('Fail during receive')
             self.__fail = True
