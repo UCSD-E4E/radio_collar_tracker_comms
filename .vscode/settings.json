@@ -5,6 +5,6 @@
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
     "editor.rulers": [
-        80,
+        100,
     ]
 }
