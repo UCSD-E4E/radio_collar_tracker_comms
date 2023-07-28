@@ -356,7 +356,10 @@ class rctOptionsPacket(rctBinaryPacket):
         for keyword in accepted_kw:
             option_param = option_param_table[keyword]
 
-            assert isinstance(kwargs[keyword], option_param.type_list)
+            if not isinstance(kwargs[keyword], option_param.type_list):
+                msg = (f'kw {keyword} expected type {option_param.type_list}, found '
+                    f'{type(kwargs[keyword])}')
+                raise TypeError(msg)
 
             self.options[keyword] = kwargs[keyword]
             if option_param.format_str != 's':
