@@ -9,15 +9,15 @@ from typing import Tuple
 import pytest
 
 from RCTComms.comms import gcsComms, mavComms, rctHeartBeatPacket
-from RCTComms.transport import RCTAbstractTransport
+from RCTComms.transport import RCTAbstractTransport, FatalException
 
 
 class RCTQueueTransport(RCTAbstractTransport):
     """Queue based transport for testing
     """
     def __init__(self,
-                 rx_q: Queue[bytes],
-                 tx_q: Queue[bytes],
+                 rx_q: "Queue[bytes]",
+                 tx_q: "Queue[bytes]",
                  name: str) -> None:
         self.rx_q = rx_q
         self.tx_q = tx_q
@@ -55,6 +55,8 @@ class RCTQueueTransport(RCTAbstractTransport):
     def port_name(self) -> str:
         return self.__name
 
+    def reconnect_on_fail(self, timeout: int = 30):
+        raise FatalException
 
 @dataclass
 class CommsPair:
@@ -83,7 +85,7 @@ def create_comms() -> CommsPair:
     client = RCTQueueTransport(rx_q=from_queue, tx_q=to_queue, name='client')
     mav = mavComms(client)
     mav.start()
-    mav.sendPacket(rctHeartBeatPacket(0, 0, 0, 0, 0), '')
+    mav.send_packet(rctHeartBeatPacket(0, 0, 0, 0, 0), '')
     time.sleep(1)
 
     gcs = gcsComms(server)
