@@ -135,6 +135,10 @@ class RCTUDPClient(RCTAbstractTransport):
     def __init__(self, port: int):
         self.__socket: Optional[socket.socket] = None
         self.__port = port
+        self.__fail = False
+        self.__log = logging.getLogger(f'UDP Client {port}')
+        self.__rx_lock = Lock()
+        self.__tx_lock = Lock()
 
     def open(self):
         self.__socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -148,19 +152,30 @@ class RCTUDPClient(RCTAbstractTransport):
             self.__socket = None
 
     def receive(self, buffer_len: int, timeout: int=None):
-        if self.__socket is None:
-            raise RuntimeError()
-        ready = select.select([self.__socket], [], [], timeout)
-        if len(ready[0]) == 1:
-            data, addr = self.__socket.recvfrom(buffer_len)
-            return data, addr[0]
-        else:
-            raise TimeoutError
+        try:
+            with self.__rx_lock:
+                if self.__socket is None:
+                    raise RuntimeError()
+                ready = select.select([self.__socket], [], [], timeout)
+                if len(ready[0]) != 1:
+                    raise TimeoutError
+                data, addr = self.__socket.recvfrom(buffer_len)
+                return data, addr[0]
+        except Exception as exc:
+            self.__log.exception('Fail on receive')
+            self.__fail = True
+            raise exc
 
     def send(self, data: bytes, dest):
-        if self.__socket is None:
-            raise RuntimeError()
-        self.__socket.sendto(data, (dest, self.__port))
+        try:
+            with self.__tx_lock:
+                if self.__socket is None:
+                    raise RuntimeError()
+                self.__socket.sendto(data, (dest, self.__port))
+        except Exception as exc:
+            self.__log.exception('Fail on send')
+            self.__fail = True
+            raise exc
 
     def isOpen(self):
         return self.__socket is not None
@@ -173,6 +188,31 @@ class RCTUDPClient(RCTAbstractTransport):
             str: String representation of the port
         """
         return self.__port
+
+    def reconnect_on_fail(self, timeout: int = 30):
+        with self.__rx_lock, self.__tx_lock:
+            if not self.__fail:
+                return
+            start = dt.datetime.now()
+
+            try:
+                self.__socket.close()
+            except Exception: # pylint: disable=broad-except
+                # pass any exception - idea is to suppress and recover
+                self.__log.exception('Failed to close on reconnect')
+
+            self.__socket = None
+
+            while (dt.datetime.now() - start).total_seconds() < timeout:
+                try:
+                    self.__socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    self.__socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    self.__socket.bind(('', self.__port))
+                except Exception: # pylint: disable=broad-except
+                    # need to keep trying until timeout
+                    self.__log.exception('Failed to open on reconnect')
+                    time.sleep(1)
+            raise FatalException('Unable to reconnect')
 
 class RCTUDPServer(RCTAbstractTransport):
     def __init__(self, port: int):
