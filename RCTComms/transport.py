@@ -11,6 +11,7 @@ import socket
 import threading
 import time
 import types
+from threading import Lock
 from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import ParseResult, parse_qs, urlparse
 
@@ -121,7 +122,9 @@ class RCTAbstractTransport(abc.ABC):
         it has just come out of `open`.
 
         If this transport is not currently connected and cannot be connected,
-        this method must raise a RCTComms.transport.FatalException
+        this method must raise a RCTComms.transport.FatalException.
+
+        Note that this method must be thread-safe, as send and recieve may happen concurrently.
 
         Args:
             timeout (int, optional): Timeout. Defaults to 30.
@@ -265,6 +268,8 @@ class RCTTCPClient(RCTAbstractTransport):
         self.__socket: Optional[socket.socket] = None
         self.__fail = False
         self.__log = logging.getLogger(f'TCP Client {addr}:{port}')
+        self.__rx_lock = Lock()
+        self.__tx_lock = Lock()
 
     def open(self):
         self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -284,13 +289,14 @@ class RCTTCPClient(RCTAbstractTransport):
 
     def receive(self, buffer_len: int, timeout: int=None):
         try:
-            if self.__socket is None:
-                raise RuntimeError()
-            ready = select.select([self.__socket], [], [], timeout)
-            if len(ready[0]) != 1:
-                raise TimeoutError
-            data = self.__socket.recv(buffer_len)
-            return data, self.__target[0]
+            with self.__rx_lock:
+                if self.__socket is None:
+                    raise RuntimeError()
+                ready = select.select([self.__socket], [], [], timeout)
+                if len(ready[0]) != 1:
+                    raise TimeoutError
+                data = self.__socket.recv(buffer_len)
+                return data, self.__target[0]
         except Exception as exc:
             self.__log.exception('Fail on receive')
             self.__fail = True
@@ -299,9 +305,10 @@ class RCTTCPClient(RCTAbstractTransport):
     def send(self, data: bytes, dest):
         # pylint: disable=unused-argument
         try:
-            if self.__socket is None:
-                raise RuntimeError()
-            self.__socket.send(data)
+            with self.__tx_lock:
+                if self.__socket is None:
+                    raise RuntimeError()
+                self.__socket.send(data)
         except Exception as exc:
             self.__log.exception('Fail on send')
             self.__fail = True
@@ -320,29 +327,30 @@ class RCTTCPClient(RCTAbstractTransport):
         return f'{self.__target[0]}:{self.__target[1]}'
 
     def reconnect_on_fail(self, timeout: int = 30):
-        if not self.__fail:
-            return
-        start = dt.datetime.now()
+        with self.__rx_lock, self.__tx_lock:
+            if not self.__fail:
+                return
+            start = dt.datetime.now()
 
-        try:
-            self.__socket.shutdown(socket.SHUT_RDWR)
-            self.__socket.close()
-        except Exception: # pylint: disable=broad-except
-            # pass any exception - idea is to suppress and recover
-            self.__log.exception('Failed to close on reconnect')
-
-        self.__socket = None
-
-        while (dt.datetime.now() - start).total_seconds() < timeout:
             try:
-                self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.__socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                self.__socket.connect(self.__target)
+                self.__socket.shutdown(socket.SHUT_RDWR)
+                self.__socket.close()
             except Exception: # pylint: disable=broad-except
-                # need to keep trying until timeout
-                self.__log.exception('Failed to open on reconnect')
-                time.sleep(1)
-        raise FatalException('Unable to reconnect')
+                # pass any exception - idea is to suppress and recover
+                self.__log.exception('Failed to close on reconnect')
+
+            self.__socket = None
+
+            while (dt.datetime.now() - start).total_seconds() < timeout:
+                try:
+                    self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    self.__socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    self.__socket.connect(self.__target)
+                except Exception: # pylint: disable=broad-except
+                    # need to keep trying until timeout
+                    self.__log.exception('Failed to open on reconnect')
+                    time.sleep(1)
+            raise FatalException('Unable to reconnect')
 
 class RCTTCPServer:
     def __init__(self, port: int, connectionHandler: Callable[[RCTAbstractTransport, int], None], addr: str = ''):
@@ -503,6 +511,8 @@ class RCTSerialTransport(RCTAbstractTransport):
         self.__log = logging.getLogger(port)
         self.__log.setLevel(logging.WARNING)
         self.__fail = False
+        self.__tx_lock = Lock()
+        self.__rx_lock = Lock()
 
     @property
     def port_name(self) -> str:
@@ -536,21 +546,22 @@ class RCTSerialTransport(RCTAbstractTransport):
                 machine which sent that data (sender)
         '''
         try:
-            self.__log.debug('Started rx')
-            if not self.__serial.isOpen():
-                raise RuntimeError
+            with self.__rx_lock:
+                self.__log.debug('Started rx')
+                if not self.isOpen():
+                    raise RuntimeError
 
-            self.__serial.timeout = timeout
-            self.__log.debug('Set timeout to %d', self.__serial.timeout)
-            to_read = buffer_len
-            self.__log.debug('Reading %d bytes', to_read)
-            data = self.__serial.read(to_read)
-            self.__log.debug('Got %d bytes', len(data))
+                self.__serial.timeout = timeout
+                self.__log.debug('Set timeout to %d', self.__serial.timeout)
+                to_read = buffer_len
+                self.__log.debug('Reading %d bytes', to_read)
+                data = self.__serial.read(to_read)
+                self.__log.debug('Got %d bytes', len(data))
 
-            if len(data) == 0:
-                raise TimeoutError
+                if len(data) == 0:
+                    raise TimeoutError
 
-            return data, self.__port
+                return data, self.__port
         except Exception as exc:
             self.__log.exception('Fail during receive')
             self.__fail = True
@@ -564,10 +575,11 @@ class RCTSerialTransport(RCTAbstractTransport):
         :param dest: Destination to route data to
         '''
         try:
-            if not self.__serial.isOpen():
-                raise RuntimeError
+            with self.__tx_lock:
+                if not self.isOpen():
+                    raise RuntimeError
 
-            self.__serial.write(data)
+                self.__serial.write(data)
         except Exception as exc:
             self.__log.exception('Fail during send')
             self.__fail = True
@@ -581,9 +593,10 @@ class RCTSerialTransport(RCTAbstractTransport):
         Subsequent calls to open() shall not fail if the port is available for
             this process to own.
         '''
-        if self.__serial is not None:
-            self.__serial.close()
-        self.__fail = False
+        with self.__rx_lock, self.__tx_lock:
+            if self.__serial is not None:
+                self.__serial.close()
+            self.__fail = False
 
     def isOpen(self) -> bool:
         '''
@@ -602,26 +615,27 @@ class RCTSerialTransport(RCTAbstractTransport):
         Raises:
             FatalException: Unable to reconnect
         """
-        if not self.__fail:
-            return
-        start = dt.datetime.now()
-
-        try:
-            self.__serial.close()
-        except Exception:   # pylint: disable=broad-except
-            # pass any exception - idea is to suppress and recover
-            self.__log.exception('Failed to close on reconnect')
-
-        self.__serial = None    # This should delete the serial object, though we won't know
-        while (dt.datetime.now() - start).total_seconds() < timeout:
-            try:
-                self.__serial = serial.Serial(self.__port, baudrate=self.__baudrate)
+        with self.__rx_lock, self.__tx_lock:
+            if not self.__fail:
                 return
-            except Exception: # pylint: disable=broad-except
-                # need to keep trying until timeout
-                self.__log.exception('Failed to open on reconnect')
-                time.sleep(1)
-        raise FatalException('Unable to reconnect')
+            start = dt.datetime.now()
+
+            try:
+                self.__serial.close()
+            except Exception:   # pylint: disable=broad-except
+                # pass any exception - idea is to suppress and recover
+                self.__log.exception('Failed to close on reconnect')
+
+            self.__serial = None    # This should delete the serial object, though we won't know
+            while (dt.datetime.now() - start).total_seconds() < timeout:
+                try:
+                    self.__serial = serial.Serial(self.__port, baudrate=self.__baudrate)
+                    return
+                except Exception: # pylint: disable=broad-except
+                    # need to keep trying until timeout
+                    self.__log.exception('Failed to open on reconnect')
+                    time.sleep(1)
+            raise FatalException('Unable to reconnect')
 
 
 class RCTTransportFactory:
