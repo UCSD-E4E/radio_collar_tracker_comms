@@ -16,8 +16,8 @@ class RCTQueueTransport(RCTAbstractTransport):
     """Queue based transport for testing
     """
     def __init__(self,
-                 rx_q: Queue[bytes],
-                 tx_q: Queue[bytes],
+                 rx_q: "Queue[bytes]",
+                 tx_q: "Queue[bytes]",
                  name: str) -> None:
         self.rx_q = rx_q
         self.tx_q = tx_q
