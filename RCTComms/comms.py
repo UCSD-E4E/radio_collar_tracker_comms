@@ -44,6 +44,7 @@ from __future__ import annotations
 import binascii
 import datetime as dt
 import enum
+import json
 import logging
 import struct
 import threading
@@ -731,6 +732,31 @@ class rctUPGRADECommand(rctBinaryPacket):
     def from_bytes(cls, packet: bytes):
         return rctUPGRADECommand()
 
+class RctEngrCommand(rctBinaryPacket):
+    """Engineering command packet
+
+    """
+    def __init__(self, command_word: str, args: Dict[str, Any]) -> None:
+        self.command_word = command_word
+        self.args = args
+        payload_bytes = json.dumps({command_word:args}).encode(encoding='ascii')
+        super().__init__(payload=payload_bytes, packetClass=0x06, packetID=0x00)
+
+    @classmethod
+    def matches(cls, packetClass: int, packetID: int) -> bool:
+        return packetClass == 0x06 and packetID == 0x00
+
+    @classmethod
+    def from_bytes(cls, packet: bytes) -> rctBinaryPacket:
+        header = packet[0:6]
+        payload_bytes = packet[6:-2]
+        _, _, pcls, pid, _ = struct.unpack('<BBBBH', header)
+        if not cls.matches(pcls, pid):
+            raise RuntimeError('Incorrect packet type')
+        payload: Dict[str, Dict[str, Any]] = json.loads(payload_bytes.decode(encoding='ascii'))
+        assert len(payload.keys()) == 1
+        cmd_word = list(payload.keys())[0]
+        return RctEngrCommand(command_word=cmd_word, args=payload[cmd_word])
 
 class EVENTS(enum.Enum):
     STATUS_HEARTBEAT = 0x0101
@@ -750,6 +776,7 @@ class EVENTS(enum.Enum):
     COMMAND_START = 0x0507
     COMMAND_STOP = 0x0509
     COMMAND_UPGRADE = 0x050B
+    ENGR_CMD = 0x0600
     GENERAL_NO_HEARTBEAT = 0x10000
     GENERAL_EXCEPTION = 0x20000
     GENERAL_UNKNOWN = 0x30000
@@ -786,7 +813,9 @@ class rctBinaryPacketFactory:
         EVENTS.COMMAND_SETOPT.value: rctSETOPTCommand,
         EVENTS.COMMAND_START.value: rctSTARTCommand,
         EVENTS.COMMAND_STOP.value: rctSTOPCommand,
-        EVENTS.COMMAND_UPGRADE.value: rctUPGRADECommand}
+        EVENTS.COMMAND_UPGRADE.value: rctUPGRADECommand,
+        EVENTS.ENGR_CMD.value: RctEngrCommand,
+    }
 
     def __init__(self):
         self.__state = self.State.FIND_SYNC

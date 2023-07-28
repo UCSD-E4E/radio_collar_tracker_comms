@@ -4,21 +4,24 @@ import time
 from os import urandom
 from random import randint, random, seed
 from typing import Any, Dict, List, Tuple, Union
+from unittest.mock import Mock
 
 import pytest
 from conftest import CommsPair
 
-from RCTComms.comms import (EVENTS, rctACKCommand, rctExceptionPacket,
-                            rctFrequenciesPacket, rctGETFCommand,
-                            rctGETOPTCommand, rctHeartBeatPacket,
-                            rctOptionsPacket, rctPingPacket, rctSETFCommand,
-                            rctSETOPTCommand, rctSTARTCommand, rctSTOPCommand,
-                            rctUPGRADECommand, rctUpgradePacket,
-                            rctUpgradeStatusPacket, rctVehiclePacket)
+from RCTComms.comms import (EVENTS, rctACKCommand, RctEngrCommand,
+                            rctExceptionPacket, rctFrequenciesPacket,
+                            rctGETFCommand, rctGETOPTCommand,
+                            rctHeartBeatPacket, rctOptionsPacket,
+                            rctPingPacket, rctSETFCommand, rctSETOPTCommand,
+                            rctSTARTCommand, rctSTOPCommand, rctUPGRADECommand,
+                            rctUpgradePacket, rctUpgradeStatusPacket,
+                            rctVehiclePacket)
 from RCTComms.options import (BASE_OPTIONS, ENG_OPTIONS, EXP_OPTIONS, Options,
                               base_options_keywords,
                               engineering_options_keywords,
-                              expert_options_keywords, option_param_table, validate_option)
+                              expert_options_keywords, option_param_table,
+                              validate_option)
 
 
 @pytest.mark.timeout(10)
@@ -467,3 +470,24 @@ def test_upgradeCmd(comms: CommsPair):
 
     rx = pkt_queue.get(True, timeout=1)
     assert rx == pkt
+
+def test_engr_cmd(comms: CommsPair):
+    """Tests the engineering command
+
+    Args:
+        comms (CommsPair): Test Comms
+    """
+    seed(0)
+
+    pkt_queue: queue.Queue[RctEngrCommand] = queue.Queue()
+    def mock_cb(packet: RctEngrCommand, addr: str):
+        pkt_queue.put(packet)
+
+    comms.mav.register_callback(EVENTS.ENGR_CMD, mock_cb)
+    pkt = RctEngrCommand('test', {'arg1': 1234})
+
+    comms.gcs.sendPacket(pkt)
+
+    rx_pkt = pkt_queue.get(True, timeout=1)
+
+    assert rx_pkt == pkt
