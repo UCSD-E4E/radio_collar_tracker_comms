@@ -9,7 +9,7 @@ from typing import Tuple
 import pytest
 
 from RCTComms.comms import gcsComms, mavComms, rctHeartBeatPacket
-from RCTComms.transport import RCTAbstractTransport
+from RCTComms.transport import RCTAbstractTransport, FatalException
 
 
 class RCTQueueTransport(RCTAbstractTransport):
@@ -55,6 +55,8 @@ class RCTQueueTransport(RCTAbstractTransport):
     def port_name(self) -> str:
         return self.__name
 
+    def reconnect_on_fail(self, timeout: int = 30):
+        raise FatalException
 
 @dataclass
 class CommsPair:
