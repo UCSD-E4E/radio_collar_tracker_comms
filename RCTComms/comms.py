@@ -1103,24 +1103,48 @@ class mavComms:
         self.__log.info('RCT mavComms stopped')
 
     def sendToGCS(self, packet: rctBinaryPacket):
-        self.sendPacket(packet, self.gcsAddr)
+        self.send_packet(packet, self.gcsAddr)
 
     def sendToAll(self, packet: rctBinaryPacket):
-        self.sendPacket(packet, None)
+        self.send_packet(packet, None)
 
-    def sendPacket(self, packet: rctBinaryPacket, dest: Optional[str]):
+    @deprecated
+    def sendPacket(self, packet: rctBinaryPacket, dest: Optional[str], timeout=5):
+        return self.send_packet(packet=packet, dest=dest, timeout=timeout)
+
+    def send_packet(self, packet: rctBinaryPacket, dest: Optional[str], timeout=5):
+        """Sends the specified packet to the specified destination
+
+        Args:
+            packet (rctBinaryPacket): Packet to send
+            dest (Optional[str]): Destination address
+            timeout (int, optional): Timeout. Defaults to 5.
+
+        Raises:
+            exc: Failed to send
+        """
         self.port_open_event.wait(timeout=5)
         self.__log.info('Send: %s as %s', type(packet).__name__, packet)
-        self.__port.send(packet.to_bytes(), dest)
+        now = dt.datetime.now()
+        while True:
+            try:
+                self.__port.send(packet.to_bytes(), dest)
+                return
+            except Exception as exc:   # pylint: disable=broad-except
+                # try until timeout
+                self.__log.exception('Failed to send packet')
+                self.__port.reconnect_on_fail(timeout=1)
+                if (dt.datetime.now() - now).total_seconds() >= timeout:
+                    raise exc
 
     def sendPing(self, ping: rctPingPacket):
-        self.sendPacket(ping, None)
+        self.send_packet(ping, None)
 
     def sendCone(self, cone: rctConePacket):
-        self.sendPacket(cone, None)
+        self.send_packet(cone, None)
 
     def sendVehicle(self, vehicle: rctVehiclePacket):
-        self.sendPacket(vehicle, None)
+        self.send_packet(vehicle, None)
 
     def send_exception(self, exception: str, tb_: str):
         """Sends an exception message
@@ -1150,6 +1174,7 @@ class mavComms:
             except Exception as exc:
                 self.send_exception(str(exc), traceback.format_exc())
                 self.__log.exception('Failed to receive packet: %s', exc)
+                self.__port.reconnect_on_fail()
                 continue
 
             try:

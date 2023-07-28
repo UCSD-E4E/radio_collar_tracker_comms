@@ -83,7 +83,7 @@ def create_comms() -> CommsPair:
     client = RCTQueueTransport(rx_q=from_queue, tx_q=to_queue, name='client')
     mav = mavComms(client)
     mav.start()
-    mav.sendPacket(rctHeartBeatPacket(0, 0, 0, 0, 0), '')
+    mav.send_packet(rctHeartBeatPacket(0, 0, 0, 0, 0), '')
     time.sleep(1)
 
     gcs = gcsComms(server)
