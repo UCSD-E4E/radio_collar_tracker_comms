@@ -551,7 +551,7 @@ class RCTSerialTransport(RCTAbstractTransport):
         self.__log = logging.getLogger(port)
         self.__log.setLevel(logging.WARNING)
         self.__fail = False
-        self.__tx_lock = Lock()
+        self.__rx_lock = Lock()
         self.__tx_lock = Lock()
 
     @property
@@ -586,7 +586,7 @@ class RCTSerialTransport(RCTAbstractTransport):
                 machine which sent that data (sender)
         '''
         try:
-            with self.__tx_lock:
+            with self.__rx_lock:
                 self.__log.debug('Started rx')
                 if not self.isOpen():
                     raise RuntimeError
@@ -658,7 +658,7 @@ class RCTSerialTransport(RCTAbstractTransport):
             FatalException: Unable to reconnect
         """
         self.__log.warning('Starting reconnect')
-        with self.__tx_lock:
+        with self.__tx_lock, self.__rx_lock:
             if not self.__fail:
                 return
             start = dt.datetime.now()
