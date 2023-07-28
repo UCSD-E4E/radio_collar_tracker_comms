@@ -337,6 +337,7 @@ class rctFrequenciesPacket(rctBinaryPacket):
 class rctOptionsPacket(rctBinaryPacket):
 
     def __init__(self, scope: int, kwargs: Dict[Options: Any]):
+        self.__log = logging.getLogger('rctOptionsPacket')
         if scope == BASE_OPTIONS:
             accepted_kw = base_options_keywords
         elif scope == EXP_OPTIONS:
@@ -362,12 +363,17 @@ class rctOptionsPacket(rctBinaryPacket):
                 raise TypeError(msg)
 
             self.options[keyword] = kwargs[keyword]
-            if option_param.format_str != 's':
-                payload += struct.pack(option_param.format_str,
-                                             kwargs[keyword])
-            else:
-                payload += struct.pack('<H', len(kwargs[keyword]))
-                payload += kwargs[keyword].encode('ascii')
+            try:
+                if option_param.format_str != 's':
+                    payload += struct.pack(option_param.format_str,
+                                                kwargs[keyword])
+                else:
+                    payload += struct.pack('<H', len(kwargs[keyword]))
+                    payload += kwargs[keyword].encode('ascii')
+            except struct.error as exc:
+                self.__log.exception('Failed to pack for kw %s, format %s, value %s', keyword,
+                                     option_param.format_str, kwargs[keyword])
+                raise exc
         super().__init__(payload=payload, packetClass=pclass, packetID=pid)
 
     @classmethod
