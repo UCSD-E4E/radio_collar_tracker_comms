@@ -18,7 +18,7 @@ from RCTComms.comms import (EVENTS, rctACKCommand, rctExceptionPacket,
 from RCTComms.options import (BASE_OPTIONS, ENG_OPTIONS, EXP_OPTIONS, Options,
                               base_options_keywords,
                               engineering_options_keywords,
-                              expert_options_keywords, option_param_table)
+                              expert_options_keywords, option_param_table, validate_option)
 
 
 @pytest.mark.timeout(10)
@@ -120,7 +120,7 @@ def test_options(comms: CommsPair, opt_scope: Tuple[int, List[str]]):
     comms.mav.registerCallback(EVENTS.CONFIG_OPTIONS, cb_)
 
     scope = opt_scope[0]
-    options: Dict[str, Any] = {}
+    options: Dict[Options, Any] = {}
 
     populate_params(options, opt_scope[1])
 
@@ -144,23 +144,30 @@ def verify_option_key(opt: Union[rctOptionsPacket, rctSETOPTCommand], rx: Union[
     else:
         raise NotImplementedError(type(rx.options[key]))
 
-def populate_params(options: Dict[str, Any], params: List[Options]):
+def populate_params(options: Dict[Options, Any], params: List[Options]):
     for kw in params:
         kw_param = option_param_table[kw]
-        if "<L" == kw_param.format_str:
-            options[kw] = randint(0, 2**32 - 1)
-        elif "<B" == kw_param.format_str:
-            options[kw] = randint(0, 2**8 - 1)
-        elif "<f" == kw_param.format_str:
-            options[kw] = random() * 100
-        elif 's' == kw_param.format_str:
-            options[kw] = f'{random() * 100}'
-        elif '<?' == kw_param.format_str:
-            options[kw] = random() > 0.5
-        elif '' == kw_param.format_str:
-            continue
-        else:
-            raise NotImplementedError(kw_param.format_str)
+        while True:
+            if "<L" == kw_param.format_str:
+                options[kw] = randint(0, 2**32 - 1)
+            elif "<B" == kw_param.format_str:
+                options[kw] = randint(0, 2**8 - 1)
+            elif "<f" == kw_param.format_str:
+                options[kw] = random() * 100
+            elif 's' == kw_param.format_str:
+                options[kw] = f'{random() * 100}'
+            elif '<?' == kw_param.format_str:
+                options[kw] = random() > 0.5
+            elif '' == kw_param.format_str:
+                continue
+            else:
+                raise NotImplementedError(kw_param.format_str)
+
+            try:
+                validate_option(kw, options[kw])
+                break
+            except AssertionError:
+                continue
 
 @pytest.mark.timeout(10)
 def test_upgradeStatusPacket(comms: CommsPair):
@@ -388,7 +395,7 @@ def test_setOptCmd(comms: CommsPair, opt_scope):
     comms.mav.registerCallback(EVENTS.COMMAND_SETOPT, cb)
 
     scope = opt_scope[0]
-    options: Dict[str, Any] = {}
+    options: Dict[Options, Any] = {}
 
     populate_params(options, opt_scope[1])
 

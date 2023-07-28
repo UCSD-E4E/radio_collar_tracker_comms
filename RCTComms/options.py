@@ -231,9 +231,6 @@ def validate_option(key: Options, value: Any) -> Any:
     if param_entry.validation_fn:
         assert param_entry.validation_fn(value)
 
-    # Transform
-    if param_entry.transform_fn:
-        value = param_entry.transform_fn(value)
     return value
 
 base_options_keywords = [option
