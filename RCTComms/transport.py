@@ -552,7 +552,7 @@ class RCTSerialTransport(RCTAbstractTransport):
         self.__log.setLevel(logging.WARNING)
         self.__fail = False
         self.__tx_lock = Lock()
-        self.__rx_lock = Lock()
+        self.__tx_lock = Lock()
 
     @property
     def port_name(self) -> str:
@@ -586,7 +586,7 @@ class RCTSerialTransport(RCTAbstractTransport):
                 machine which sent that data (sender)
         '''
         try:
-            with self.__rx_lock:
+            with self.__tx_lock:
                 self.__log.debug('Started rx')
                 if not self.isOpen():
                     raise RuntimeError
@@ -635,7 +635,7 @@ class RCTSerialTransport(RCTAbstractTransport):
         Subsequent calls to open() shall not fail if the port is available for
             this process to own.
         '''
-        with self.__rx_lock, self.__tx_lock:
+        with self.__tx_lock, self.__tx_lock:
             if self.__serial is not None:
                 self.__serial.close()
             self.__fail = False
@@ -657,7 +657,8 @@ class RCTSerialTransport(RCTAbstractTransport):
         Raises:
             FatalException: Unable to reconnect
         """
-        with self.__rx_lock, self.__tx_lock:
+        self.__log.warning('Starting reconnect')
+        with self.__tx_lock:
             if not self.__fail:
                 return
             start = dt.datetime.now()
@@ -672,6 +673,7 @@ class RCTSerialTransport(RCTAbstractTransport):
             while (dt.datetime.now() - start).total_seconds() < timeout:
                 try:
                     self.__serial = serial.Serial(self.__port, baudrate=self.__baudrate)
+                    self.__log.info('Reconnected')
                     return
                 except Exception: # pylint: disable=broad-except
                     # need to keep trying until timeout
