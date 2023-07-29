@@ -679,6 +679,7 @@ class RCTSerialTransport(RCTAbstractTransport):
                     # need to keep trying until timeout
                     self.__log.exception('Failed to open on reconnect')
                     time.sleep(1)
+            self.__log.fatal('Unable to reconnect')
             raise FatalException('Unable to reconnect')
 
 
