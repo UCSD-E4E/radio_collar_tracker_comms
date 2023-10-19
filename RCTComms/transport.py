@@ -133,33 +133,35 @@ class RCTAbstractTransport(abc.ABC):
 
 class RCTI2CController(RCTAbstractTransport):
     
-    def __init__(self, port_num, i2c_address = 0x1E, i2c_read = 0x3D, i2c_write = 0x3C) -> None:
+    def __init__(self, port_name, i2c_address = 0x1E, i2c_read = 0x3D, i2c_write = 0x3C) -> None:
         '''
         Default parameters for HMC5983 connection
         HMC5983 I2C device address 0x1E
         HMC5983 I2C device read 0x3D
         HMC5983 I2C device write 0x3C
         '''        
-        self.__port_num = port_num        
+        self.__port_name = port_name
+        # grab the current directory then the number for i2c-X
+        self.__port_num = int(self.__port_name.split("/")[-1].split("-")[-1])
         self.i2c_address = i2c_address
         self.i2c_read = i2c_read
         self.i2c_write = i2c_write
-        self.__is_open = False
-
+        self.__fail = False
     def open(self) -> None:
         self.__bus = smbus.SMBus(self.__port_num)
-        self.__is_open = True
 
     def close(self) -> None:
-        self.__bus.close()
-        self.__is_open = False
+        try:
+            self.__bus.close()
+        finally:
+            self.__bus = None
 
     def receive(self, buffer_len: int) -> Tuple[bytes, str]:
         '''
         Continuously listens to uib I2C address for Sensor Packets
         '''
-        if self.__is_open == True:
-            new_buffer = []
+        new_buffer = []
+        try:
             # Linux I2C and SMBus kernel API has maximum 32 byte limit due to internal representation 
             while buffer_len >= 32:
                 data = self.__bus.read_i2c_block_data(self.i2c_address, self.i2c_read, 31)
@@ -169,26 +171,53 @@ class RCTI2CController(RCTAbstractTransport):
                 data = self.__bus.read_i2c_block_data(self.i2c_address, self.i2c_read, buffer_len)
                 new_buffer.append(data)
             return (new_buffer, str(self.i2c_address))
-        else:
-            return 
-
+        except Exception as exc:
+            self.__log.exception('Failed to revieve from I2C')
+            self.__fail = True
+            raise(exc)    
+       
     def send(self, data: bytes) -> None:
-        if self.__is_open == True:
-            data_length = len(data)
-            if (data_length == 0):
-                return
-            try:
-                # Write data to I2C
-                self.__bus.write_byte_data(self.i2c_address, self.i2c_write, data_length)
-            except Exception as exc:
-                self.__log.exception('Failed to write to I2C')
-                raise(exc)  
-        else:
-            return 
+        data_length = len(data)
+        if (data_length == 0):
+            return
+        try:
+            # Write data to I2C
+            self.__bus.write_byte_data(self.i2c_address, self.i2c_write, data_length)
+        except Exception as exc:
+            self.__log.exception('Failed to write to I2C')
+            self.__fail = True
+            raise(exc)     
     
     def isOpen(self) -> bool:
-        return self.__is_open
+        return self.__bus is not None
     
+    @property
+    def port_name(self) -> str:
+        """Returns 
+
+        Returns:
+            str: String representation of the port
+        """
+        return self.__port_name.split("/")[-1]
+    
+    def reconnect_on_fail(self, timeout: int = 30):
+        if not self.__fail:
+            return
+
+        start = dt.datetime.now()
+
+        self.close()  # Centralized logic for closing the bus
+
+        while (dt.datetime.now() - start).total_seconds() < timeout:
+            try:
+                self.open()  # Open the bus
+                self.__fail = False  # Reset the fail flag
+                break  # Exit the loop since the connection is re-established
+            except Exception:  # pylint: disable=broad-except
+                # need to keep trying until timeout
+                self.__log.exception('Failed to open on reconnect')
+                time.sleep(1)
+        raise FatalException('Unable to reconnect')
 
 # class RCTI2CListener(RCTAbstractTransport):
 #     def __init__(self) -> None:
