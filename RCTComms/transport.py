@@ -147,15 +147,21 @@ class RCTI2CController(RCTAbstractTransport):
         self.i2c_read = i2c_read
         self.i2c_write = i2c_write
         self.__fail = False
+        self.__bus = None
     def open(self) -> None:
-        self.__bus = smbus.SMBus(self.__port_num)
-
+        if self.__bus == None:
+            try:
+                self.__bus = smbus.SMBus(self.__port_num)
+            except Exception as e:
+                self.__log.error(f"Failed to open SMBus on port i2c-{self.__port_num}: {str(e)}")
+                self.__bus = None
+        else:
+            self.__bus.open(self.__port_num)
+    
+        
     def close(self) -> None:
-        try:
-            self.__bus.close()
-        finally:
-            self.__bus = None
-
+        self.__bus.close()
+       
     def receive(self, buffer_len: int) -> Tuple[bytes, str]:
         '''
         Continuously listens to uib I2C address for Sensor Packets
@@ -163,14 +169,12 @@ class RCTI2CController(RCTAbstractTransport):
         new_buffer = []
         try:
             # Linux I2C and SMBus kernel API has maximum 32 byte limit due to internal representation 
-            while buffer_len >= 32:
-                data = self.__bus.read_i2c_block_data(self.i2c_address, self.i2c_read, 31)
-                buffer_len -= 31
-                new_buffer.append(data)
-            if buffer_len > 0:
-                data = self.__bus.read_i2c_block_data(self.i2c_address, self.i2c_read, buffer_len)
-                new_buffer.append(data)
-            return (new_buffer, str(self.i2c_address))
+            while buffer_len:
+                current_len = min(buffer_len, 31)  # Read up to 31 bytes, or fewer if less than 31 bytes remain
+                data = self.__bus.read_i2c_block_data(self.i2c_address, self.i2c_read, current_len)
+                new_buffer.extend(data)
+                buffer_len -= current_len
+            return bytes(new_buffer), str(self.i2c_address)
         except Exception as exc:
             self.__log.exception('Failed to revieve from I2C')
             self.__fail = True
@@ -178,18 +182,24 @@ class RCTI2CController(RCTAbstractTransport):
        
     def send(self, data: bytes) -> None:
         data_length = len(data)
+        # If data is empty, return early
         if (data_length == 0):
             return
-        try:
-            # Write data to I2C
-            self.__bus.write_byte_data(self.i2c_address, self.i2c_write, data_length)
-        except Exception as exc:
-            self.__log.exception('Failed to write to I2C')
-            self.__fail = True
-            raise(exc)     
+        
+        # Break the data into chunks
+        data_chunks = [data[i:i+31] for i in range(0, data_length, 31)]
+        for chunk in data_chunks:
+            # Each chunk will be sent with its length as a prefix
+            data_to_send = bytes([len(chunk)]) + chunk
+            try:
+                self.__bus.write_i2c_block_data(self.i2c_address, self.i2c_write, data_to_send)
+            except Exception as exc:
+                self.__log.exception('Failed to write to I2C')
+                self.__fail = True
+                raise(exc)     
     
     def isOpen(self) -> bool:
-        return self.__bus is not None
+        return self.__bus._fd != -1
     
     @property
     def port_name(self) -> str:
@@ -218,26 +228,6 @@ class RCTI2CController(RCTAbstractTransport):
                 self.__log.exception('Failed to open on reconnect')
                 time.sleep(1)
         raise FatalException('Unable to reconnect')
-
-# class RCTI2CListener(RCTAbstractTransport):
-#     def __init__(self) -> None:
-#         super().__init__()
-#         pass
-    
-#     def open(self) -> None:
-#         pass
-
-#     def close(self) -> None:
-#         pass
-
-#     def receive(self, buffer_len: int, timeout: int = None) -> Tuple[bytes, str]:
-#         pass
-
-#     def send(self, data: bytes, dest) -> None:
-#         pass
-    
-#     def isOpen(self) -> bool:
-#         pass
 
 
 class RCTUDPClient(RCTAbstractTransport):
