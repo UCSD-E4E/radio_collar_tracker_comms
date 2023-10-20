@@ -189,10 +189,8 @@ class RCTI2CController(RCTAbstractTransport):
         # Break the data into chunks
         data_chunks = [data[i:i+31] for i in range(0, data_length, 31)]
         for chunk in data_chunks:
-            # Each chunk will be sent with its length as a prefix
-            data_to_send = bytes([len(chunk)]) + chunk
             try:
-                self.__bus.write_i2c_block_data(self.i2c_address, self.i2c_write, data_to_send)
+                self.__bus.write_i2c_block_data(self.i2c_address, self.i2c_write, chunk)
             except Exception as exc:
                 self.__log.exception('Failed to write to I2C')
                 self.__fail = True
