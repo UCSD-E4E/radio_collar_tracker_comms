@@ -7,18 +7,18 @@ from dataclasses import dataclass
 from typing import Tuple
 
 import pytest
-from RCTComms.transport import (RCTAbstractTransport, RCTTCPClient,
-                                RCTTCPServer, RCTUDPClient, RCTUDPServer)
+from rctcomms.transport import (AbstractTransport, TCPClient,
+                                TCPServer, UDPClient, UDPServer)
 
 NUM_TRIALS = 128
 TARGET_IP = '127.0.0.1'
 
 @dataclass
 class TransportPair:
-    client: RCTAbstractTransport
-    server: RCTAbstractTransport
+    client: AbstractTransport
+    server: AbstractTransport
 
-def transport_open(transport: RCTAbstractTransport):
+def transport_open(transport: AbstractTransport):
     """
     Attempts to open the transport
 
@@ -57,23 +57,23 @@ def create_transport_pair(request):
         sock.bind(('', 0))
         port = sock.getsockname()[1]
     if request.param == 'tcp':
-        server = RCTTCPServer(port, server_connection_handler)
-        client = RCTTCPClient(port, TARGET_IP)
+        server = TCPServer(port, server_connection_handler)
+        client = TCPClient(port, TARGET_IP)
 
         server_open_thread = threading.Thread(target=transport_open, args=(server,))
         client_open_thread = threading.Thread(target=transport_open, args=(client,))
         server_open_thread.start()
         client_open_thread.start()
-        while len(server.simList) < 1:
+        while len(server.sim_list) < 1:
             continue
         client_open_thread.join(timeout=5)
         server_open_thread.join(timeout=5)
 
-        server_connection = server.simList[0]
+        server_connection = server.sim_list[0]
         transport_pair = TransportPair(client, server_connection)
 
     elif request.param == 'udp':
-        transport_pair = TransportPair(RCTUDPClient(port), RCTUDPServer(port))
+        transport_pair = TransportPair(UDPClient(port), UDPServer(port))
         server_open_thread = threading.Thread(target=transport_open, args=(transport_pair.server,))
         client_open_thread = threading.Thread(target=transport_open, args=(transport_pair.client,))
         server_open_thread.start()
@@ -102,10 +102,10 @@ def test_open(transport_pair: TransportPair):
     client = transport_pair.client
     server = transport_pair.server
 
-    assert(client.isOpen())
-    assert(server.isOpen())
+    assert(client.is_open())
+    assert(server.is_open())
 
-def rx_thread(server: RCTAbstractTransport, stop_event: threading.Event, data_queue: queue.Queue):
+def rx_thread(server: AbstractTransport, stop_event: threading.Event, data_queue: queue.Queue):
     """
     test_data receiver thread
 

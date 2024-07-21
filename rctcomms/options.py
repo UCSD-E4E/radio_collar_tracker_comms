@@ -11,6 +11,8 @@ ENG_OPTIONS = 0x04
 ALL_OPTIONS = 0xFF
 
 class Options(Enum):
+    """RCT Options
+    """
     DSP_PING_WIDTH = 'DSP_ping_width'
     DSP_PING_SNR = 'DSP_ping_snr'
     DSP_PING_MAX = 'DSP_ping_max'
@@ -69,7 +71,7 @@ class OptionParams:
         Returns:
             bytes: Binary blob
         """
-        assert isinstance(value, self.type_list)
+        assert isinstance(value, self.type_list) # pylint: disable=isinstance-second-argument-not-valid-type
         if self.validation_fn:
             if not self.validation_fn(value):
                 raise ValueError('Failed validation')

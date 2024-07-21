@@ -3,7 +3,7 @@
 import pytest
 from serial.tools import list_ports
 
-from RCTComms.transport import RCTSerialTransport, RCTTransportFactory
+from rctcomms.transport import RCTSerialTransport, RCTTransportFactory
 
 
 def test_serial():

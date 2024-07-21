@@ -11,6 +11,7 @@ import socket
 import threading
 import time
 import types
+from pathlib import Path
 from threading import Lock
 from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import ParseResult, parse_qs, urlparse
@@ -25,7 +26,7 @@ class FatalException(Exception):
     This is thrown when the transport has encountered a fatal error and cannot
     recover its previous state.
     """
-class RCTAbstractTransport(abc.ABC):
+class AbstractTransport(abc.ABC):
     '''
     Abstract transport class - all transport types should inherit from this
     '''
@@ -96,7 +97,7 @@ class RCTAbstractTransport(abc.ABC):
         '''
 
     @abc.abstractmethod
-    def isOpen(self) -> bool:
+    def is_open(self) -> bool:
         '''
         Returns True if the port is open, False otherwise
         '''
@@ -131,7 +132,9 @@ class RCTAbstractTransport(abc.ABC):
         """
 
 
-class RCTUDPClient(RCTAbstractTransport):
+class UDPClient(AbstractTransport):
+    """UDP Client
+    """
     def __init__(self, port: int):
         self.__socket: Optional[socket.socket] = None
         self.__port = port
@@ -143,7 +146,7 @@ class RCTUDPClient(RCTAbstractTransport):
     def open(self):
         self.__socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.__socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.__socket.bind(("", self.__port))
+        self.__socket.bind(('', self.__port))
 
     def close(self):
         try:
@@ -177,7 +180,7 @@ class RCTUDPClient(RCTAbstractTransport):
             self.__fail = True
             raise exc
 
-    def isOpen(self):
+    def is_open(self):
         return self.__socket is not None
 
     @property
@@ -214,7 +217,9 @@ class RCTUDPClient(RCTAbstractTransport):
                     time.sleep(1)
             raise FatalException('Unable to reconnect')
 
-class RCTUDPServer(RCTAbstractTransport):
+class UDPServer(AbstractTransport):
+    """UDP Broadcast Server
+    """
     def __init__(self, port: int):
         self.__socket: Optional[socket.socket] = None
         self.__port = port
@@ -224,14 +229,14 @@ class RCTUDPServer(RCTAbstractTransport):
         self.__socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.__socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.__socket.setblocking(False)
-        self.__socket.bind(("", self.__port))
+        self.__socket.bind(('', self.__port))
 
     def close(self):
         if self.__socket is None:
             raise RuntimeError()
         try:
             self.__socket.close()
-        except:
+        except Exception:
             pass
         self.__socket = None
 
@@ -252,7 +257,7 @@ class RCTUDPServer(RCTAbstractTransport):
             dest = '255.255.255.255'
         self.__socket.sendto(data, (dest, self.__port))
 
-    def isOpen(self):
+    def is_open(self):
         return self.__socket is not None
 
     @property
@@ -265,24 +270,27 @@ class RCTUDPServer(RCTAbstractTransport):
         return self.__port
 
 
-class RCTPipeClient(RCTAbstractTransport):
+class PipeClient(AbstractTransport):
+    """Pipe Client Transport
+    """
     def __init__(self):
-        self.__inFile = None
-        self.__outFile = None
+        self.__in_file = None
+        self.__out_file = None
 
     def open(self):
-        if not os.path.exists("/tmp/rctClient2Simulator"):
-            os.mkfifo('/tmp/rctClient2Simulator')
-        if not os.path.exists("/tmp/rctSimulator2Client"):
-            os.mkfifo('/tmp/rctSimulator2Client')
+        client_to_sim = Path('/tmp/rctClient2Simulator')
+        sim_to_client = Path('/tmp/rctSimulator2Client')
+        if not client_to_sim.exists():
+            os.mkfifo(client_to_sim.as_posix())
+        if not sim_to_client.exists():
+            os.mkfifo(sim_to_client.as_posix())
 
-        self.__inFile = os.open(
-            '/tmp/rctSimulator2Client', os.O_NONBLOCK | os.O_RDONLY)
-        self.__outFile = open('/tmp/rctClient2Simulator', 'wb')
+        self.__in_file = os.open(sim_to_client.as_posix(), os.O_NONBLOCK | os.O_RDONLY)
+        self.__out_file = open(client_to_sim, 'wb')
 
     def close(self):
-        self.__inFile = None
-        self.__outFile = None
+        self.__in_file = None
+        self.__out_file = None
 
     def receive(self, buffer_len: int, timeout: int = None):
         pass
@@ -290,8 +298,8 @@ class RCTPipeClient(RCTAbstractTransport):
     def send(self, data: bytes, dest):
         pass
 
-    def isOpen(self):
-        return self.__inFile is not None and self.__outFile is not None
+    def is_open(self):
+        return self.__in_file is not None and self.__out_file is not None
 
     @property
     def port_name(self) -> str:
@@ -302,7 +310,9 @@ class RCTPipeClient(RCTAbstractTransport):
         """
         return 'pipe'
 
-class RCTTCPClient(RCTAbstractTransport):
+class TCPClient(AbstractTransport):
+    """TCP Client
+    """
     def __init__(self, port: int, addr: str):
         self.__target = (addr, port)
         self.__socket: Optional[socket.socket] = None
@@ -321,7 +331,7 @@ class RCTTCPClient(RCTAbstractTransport):
             raise RuntimeError()
         try:
             self.__socket.shutdown(socket.SHUT_RDWR)
-        except:
+        except Exception:
             pass
         self.__socket.close()
         self.__socket = None
@@ -354,7 +364,7 @@ class RCTTCPClient(RCTAbstractTransport):
             self.__fail = True
             raise exc
 
-    def isOpen(self):
+    def is_open(self):
         return self.__socket is not None
 
     @property
@@ -392,20 +402,24 @@ class RCTTCPClient(RCTAbstractTransport):
                     time.sleep(1)
             raise FatalException('Unable to reconnect')
 
-class RCTTCPServer:
-    def __init__(self, port: int, connectionHandler: Callable[[RCTAbstractTransport, int], None], addr: str = ''):
+class TCPServer:
+    """TCP Server Transport
+    """
+    def __init__(self,
+                 port: int,
+                 connection_handler: Callable[[AbstractTransport, int], None], addr: str = ''):
         '''
         Creates an RCTTCPServer object to be bound to the specified port.
         '''
         self.__log = logging.getLogger('RCT TCP Server')
         self.__port = port
         self.__socket: Optional[socket.socket] = None
-        self.__generatorThread: Optional[threading.Thread] = None
+        self._generator_thread: Optional[threading.Thread] = None
         self.__running: Optional[threading.Event] = None
-        self.__hostAdr = addr
-        self.__connection_handler = connectionHandler
+        self.__host_addr = addr
+        self.__connection_handler = connection_handler
         self.__connection_index = 0
-        self.simList = []
+        self.sim_list = []
 
     def open(self):
         '''
@@ -413,8 +427,7 @@ class RCTTCPServer:
         for new connections.
         '''
         # Use printed addr in rctconfig
-        self.__log.info('Server started at {}'.format(
-                        socket.gethostbyname(socket.gethostname())))
+        self.__log.info('Server started at %s', socket.gethostbyname(socket.gethostname()))
 
         error_time = 1
         while self.__socket is None:
@@ -423,7 +436,7 @@ class RCTTCPServer:
                 self.__running.clear()
                 self.__socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
                 self.__socket.settimeout(2)
-                self.__socket.bind((self.__hostAdr, self.__port))
+                self.__socket.bind((self.__host_addr, self.__port))
                 self.__log.info('Port is listening')
                 self.__socket.listen()
             except Exception as exc: # pylint: disable=broad-except
@@ -433,11 +446,11 @@ class RCTTCPServer:
                 self.__log.exception('Failed to open port: %s', exc)
                 time.sleep(error_time)
                 error_time = min(2 * error_time, 10)
-        self.__generatorThread = threading.Thread(target=self.generatorLoop,
+        self._generator_thread = threading.Thread(target=self.generator_loop,
                                                 daemon=True)
-        self.__generatorThread.start()
+        self._generator_thread.start()
 
-    def generatorLoop(self):
+    def generator_loop(self):
         '''
         Thread to accept new connections to the server. A new
         RCTTCPConnection object is made each time a client connects.
@@ -445,13 +458,15 @@ class RCTTCPServer:
 
         while not self.__running.is_set():
             try:
-                clientConn, clientAddr = self.__socket.accept()
-                self.__log.info('New connection accepted from {}'.format(clientAddr))
-                if clientConn is not None and clientAddr is not None:
-                    newConnection = RCTTCPConnection(clientAddr, clientConn, self.__connection_index)
-                    self.__connection_handler(newConnection, self.__connection_index)
+                client_conn, client_addr = self.__socket.accept()
+                self.__log.info('New connection accepted from %s', client_addr)
+                if client_conn is not None and client_addr is not None:
+                    new_connection = RCTTCPConnection(client_addr,
+                                                      client_conn,
+                                                      self.__connection_index)
+                    self.__connection_handler(new_connection, self.__connection_index)
                     self.__connection_index += 1
-                    self.simList.append(newConnection)
+                    self.sim_list.append(new_connection)
             except socket.timeout:
                 pass
             except ConnectionAbortedError:
@@ -462,26 +477,33 @@ class RCTTCPServer:
         Closes this server. GeneratorThread is stopped and all connections are
         closed.
         '''
-        if self.__socket is None or self.__generatorThread is None:
+        if self.__socket is None or self._generator_thread is None:
             raise RuntimeError()
         try:
             self.__running.set()
-            self.__generatorThread.join(timeout=2)
+            self._generator_thread.join(timeout=2)
             self.__socket.close()
         finally:
             self.__socket = None
-            self.__generatorThread = None
+            self._generator_thread = None
 
-    def isOpen(self):
+    def is_open(self) -> bool:
+        """Checks if the server connection exists
+
+        Returns:
+            bool: True if open, otherwise False
+        """
         return self.__socket is not None
 
-class RCTTCPConnection(RCTAbstractTransport):
-    def __init__(self, addr: Tuple[str, int], conn: socket.socket, id: int):
+class RCTTCPConnection(AbstractTransport):
+    """TCP Connection
+    """
+    def __init__(self, addr: Tuple[str, int], conn: socket.socket, idx: int):
         self.__addr = addr
         self.__socket = conn
-        self.__id = id
+        self.__id = idx
         self.__sel = selectors.DefaultSelector()
-        data = types.SimpleNamespace(addr=self.__addr, inb=b"", outb=b"")
+        data = types.SimpleNamespace(addr=self.__addr, inb=b'', outb=b'')
         self.__sel.register(self.__socket, selectors.EVENT_READ, data=data)
 
     def open(self):
@@ -493,7 +515,7 @@ class RCTTCPConnection(RCTAbstractTransport):
         try:
             self.__sel.unregister(self.__socket)
             self.__socket.close()
-        except:
+        except Exception:
             pass
 
     def receive(self, buffer_len: int, timeout: int=None):
@@ -523,7 +545,7 @@ class RCTTCPConnection(RCTAbstractTransport):
             raise RuntimeError()
         self.__socket.send(data)
 
-    def isOpen(self):
+    def is_open(self):
         return self.__socket is not None
 
     @property
@@ -535,7 +557,7 @@ class RCTTCPConnection(RCTAbstractTransport):
         """
         return f'{self.__addr[0]}:{self.__addr[1]}'
 
-class RCTSerialTransport(RCTAbstractTransport):
+class RCTSerialTransport(AbstractTransport):
     '''
     Serial Transport
     No client/server distinction
@@ -588,7 +610,7 @@ class RCTSerialTransport(RCTAbstractTransport):
         try:
             with self.__rx_lock:
                 self.__log.debug('Started rx')
-                if not self.isOpen():
+                if not self.is_open():
                     raise RuntimeError
 
                 self.__serial.timeout = timeout
@@ -618,7 +640,7 @@ class RCTSerialTransport(RCTAbstractTransport):
         '''
         try:
             with self.__tx_lock:
-                if not self.isOpen():
+                if not self.is_open():
                     raise RuntimeError
 
                 self.__serial.write(data)
@@ -640,7 +662,7 @@ class RCTSerialTransport(RCTAbstractTransport):
                 self.__serial.close()
             self.__fail = False
 
-    def isOpen(self) -> bool:
+    def is_open(self) -> bool:
         '''
         Return True if the port is open, False otherwise
         '''
@@ -689,7 +711,7 @@ class RCTTransportFactory:
     # pylint: disable=too-few-public-methods
     # This is a factory class with a single creation routine
     @classmethod
-    def create_transport(cls, spec: str) -> RCTAbstractTransport:
+    def create_transport(cls, spec: str) -> AbstractTransport:
         """Creates a new transport based on a string specification.
 
         | Type          | Resulting Object      | Syntax                            |
@@ -714,7 +736,7 @@ class RCTTransportFactory:
 
     @classmethod
     def parse_spec(cls, spec: str) -> \
-            Tuple[ParseResult, Callable[[ParseResult], RCTAbstractTransport]]:
+            Tuple[ParseResult, Callable[[ParseResult], AbstractTransport]]:
         """Parses the specified spec
 
         Raises:
@@ -724,7 +746,7 @@ class RCTTransportFactory:
             Tuple[ParseResult, Callable[[ParseResult], RCTAbstractTransport]]: Parse result and
             factory function
         """
-        transport_map: Dict[ParseResult, Callable[[ParseResult], RCTAbstractTransport]] = {
+        transport_map: Dict[ParseResult, Callable[[ParseResult], AbstractTransport]] = {
             'udps': cls.__create_udpserver,
             'udpc': cls.__create_udpclient,
             'tcpc': cls.__create_tcpclient,
@@ -738,16 +760,16 @@ class RCTTransportFactory:
         return result,factory
 
     @classmethod
-    def __create_udpclient(cls, spec: ParseResult) -> RCTUDPClient:
+    def __create_udpclient(cls, spec: ParseResult) -> UDPClient:
         raise NotImplementedError
 
     @classmethod
-    def __create_udpserver(cls, spec: ParseResult) -> RCTUDPServer:
+    def __create_udpserver(cls, spec: ParseResult) -> UDPServer:
         raise NotImplementedError
 
     @classmethod
-    def __create_tcpclient(cls, spec: ParseResult) -> RCTTCPClient:
-        return RCTTCPClient(port=spec.port, addr=spec.netloc)
+    def __create_tcpclient(cls, spec: ParseResult) -> TCPClient:
+        return TCPClient(port=spec.port, addr=spec.netloc)
 
     @classmethod
     def __create_tcpserver(cls, spec: ParseResult) -> RCTTCPConnection:

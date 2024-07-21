@@ -3,7 +3,7 @@
 from enum import Enum, auto
 from unittest.mock import Mock
 
-from RCTComms.callbacks import supports_callbacks
+from rctcomms.callbacks import supports_callbacks
 
 
 class ActionEvent(Enum):

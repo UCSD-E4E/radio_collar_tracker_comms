@@ -8,11 +8,11 @@ from typing import Tuple
 
 import pytest
 
-from RCTComms.comms import gcsComms, mavComms, rctHeartBeatPacket
-from RCTComms.transport import RCTAbstractTransport, FatalException
+from rctcomms.comms import GcsComms, MavComms, HeartbeatPacket
+from rctcomms.transport import AbstractTransport, FatalException
 
 
-class RCTQueueTransport(RCTAbstractTransport):
+class RCTQueueTransport(AbstractTransport):
     """Queue based transport for testing
     """
     def __init__(self,
@@ -48,7 +48,7 @@ class RCTQueueTransport(RCTAbstractTransport):
         assert self.__open
         self.__open = False
 
-    def isOpen(self) -> bool:
+    def is_open(self) -> bool:
         return self.__open
 
     @property
@@ -62,8 +62,8 @@ class RCTQueueTransport(RCTAbstractTransport):
 class CommsPair:
     """Pair of MAV/GCS comms
     """
-    gcs: gcsComms
-    mav: mavComms
+    gcs: GcsComms
+    mav: MavComms
 
 
 @pytest.fixture(name='comms')
@@ -83,12 +83,12 @@ def create_comms() -> CommsPair:
     from_queue = Queue()
     server = RCTQueueTransport(rx_q=to_queue, tx_q=from_queue, name='server')
     client = RCTQueueTransport(rx_q=from_queue, tx_q=to_queue, name='client')
-    mav = mavComms(client)
+    mav = MavComms(client)
     mav.start()
-    mav.send_packet(rctHeartBeatPacket(0, 0, 0, 0, 0), '')
+    mav.send_packet(HeartbeatPacket(0, 0, 0, 0, 0), '')
     time.sleep(1)
 
-    gcs = gcsComms(server)
+    gcs = GcsComms(server)
     gcs.start()
 
     yield CommsPair(gcs, mav)

@@ -10,7 +10,7 @@ from typing import Tuple
 
 import pytest
 
-from RCTComms.transport import RCTAbstractTransport, RCTSerialTransport
+from rctcomms.transport import AbstractTransport, RCTSerialTransport
 
 NUM_TRIALS = 128
 TARGET_IP = '127.0.0.1'
@@ -22,10 +22,10 @@ class TransportPair:
     Dataclass to store two abstract transport objects, a client and a server
     which are paired together.
     '''
-    client: RCTAbstractTransport
-    server: RCTAbstractTransport
+    client: AbstractTransport
+    server: AbstractTransport
 
-def transport_open(transport: RCTAbstractTransport):
+def transport_open(transport: AbstractTransport):
     """
     Attempts to open the transport
 
@@ -87,10 +87,10 @@ def test_open(transport_pair: TransportPair):
     client = transport_pair.client
     server = transport_pair.server
 
-    assert client.isOpen()
-    assert server.isOpen()
+    assert client.is_open()
+    assert server.is_open()
 
-def rx_thread(server: RCTAbstractTransport, stop_event: threading.Event, data_queue: queue.Queue):
+def rx_thread(server: AbstractTransport, stop_event: threading.Event, data_queue: queue.Queue):
     """
     test_data receiver thread
 
